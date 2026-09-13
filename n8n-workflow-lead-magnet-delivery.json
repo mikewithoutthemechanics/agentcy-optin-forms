@@ -1,0 +1,244 @@
+{
+  "name": "Agentcy Lead Magnet Delivery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agentcy-trades-optin",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook: Trades Opt-In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agentcy-online-smb-optin",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "2",
+      "name": "Webhook: Online SMB Opt-In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 350]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agentcy-prof-services-optin",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Webhook: Prof Services Opt-In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            { "name": "Name", "value": "={{ $json.name }}" },
+            { "name": "Business", "value": "={{ $json.business }}" },
+            { "name": "Segment", "value": "={{ $json.segment }}" },
+            { "name": "Area", "value": "={{ $json.area || '' }}" },
+            { "name": "Preferred Channel", "value": "={{ $json.preferred_channel }}" },
+            { "name": "Pain Point", "value": "={{ $json.pain_point }}" },
+            { "name": "Current Tools", "value": "={{ $json.current_tools || '' }}" },
+            { "name": "POPIA Consent", "value": "={{ $json.popia_consent }}" },
+            { "name": "Consent Basis", "value": "={{ $json.consent_basis || 'Form Opt-In' }}" },
+            { "name": "Source", "value": "={{ $json.source || 'website' }}" },
+            { "name": "Opt-In Date", "value": "={{ $json.optin_date || new Date().toISOString().split('T')[0] }}" },
+            { "name": "Status", "value": "New Opt-In" },
+            { "name": "Booked Call", "value": "No" },
+            { "name": "Attended", "value": "No" },
+            { "name": "Qualified", "value": "No" },
+            { "name": "Proposal Sent", "value": "No" },
+            { "name": "Outcome", "value": "" },
+            { "name": "Next Action", "value": "Send lead magnet + schedule follow-up" },
+            { "name": "Next Follow-Up Date", "value": "={{ new Date(Date.now() + 2*24*60*60*1000).toISOString().split('T')[0] }}" },
+            { "name": "Touch Count", "value": 0 },
+            { "name": "Last Touch Date", "value": "={{ new Date().toISOString().split('T')[0] }}" },
+            { "name": "Lead Magnet", "value": "={{ $json.lead_magnet }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4",
+      "name": "Map to Airtable Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [500, 350]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "options": {}
+      },
+      "id": "5",
+      "name": "Create Airtable Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [750, 350],
+      "credentials": { "airtableApi": "Agentcy Airtable" }
+    },
+    {
+      "parameters": {
+        "functionCode": "const segment = $json.segment;\nconst channel = $json.preferred_channel;\nconst name = $json.name?.split(' ')[0] || 'there';\n\nlet delivery = {\n  subject: '',\n  body: '',\n  attachment: '',\n  whatsappText: '',\n  linkedinText: ''\n};\n\nif (segment === 'KZN Trades/Local SMBs') {\n  delivery.subject = `Your \"Stop Losing Quotes\" Blueprint is Ready, ${name}!`;\n  delivery.body = `Hi ${name},\n\nYour personalized automation blueprint is attached. It includes:\n\n1. WhatsApp Instant Auto-Reply + Job Logging (15 min setup)\n2. Quote Follow-Up Sequence That Runs 24/7 (30 min setup)\n3. After-Hours Lead Capture + Morning Handoff (20 min setup)\n\nPlus: Print-ready WhatsApp QR cards for your vehicles.\n\nTotal setup time: ~1.5 hours. All free tools (Make, Airtable, WhatsApp Business).\n\n---\nNext step: I'll follow up in 2 days to see which automation you want to implement first.\n\nWant us to build it for you? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`;\n  delivery.attachment = 'lead-magnet-trades.pdf';\n  delivery.whatsappText = `Hi ${name}! Your \"Stop Losing Quotes\" blueprint is ready 📋\n\n3 automations Punctual Plumbers uses to respond in minutes, not hours:\n1. WhatsApp auto-reply + job log (15 min)\n2. Quote follow-up sequence (30 min)  \n3. After-hours capture (20 min)\n\nPDF attached. Want the Make templates imported? Book a free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`;\n  delivery.linkedinText = `Hi ${name}, your \"Stop Losing Quotes\" blueprint is ready. 3 trade-specific automations you can implement this week. PDF attached. Want the Make templates? Book a free 30-min strategy call: https://calendly.com/agentcy/30min-strategy`;\n} else if (segment === 'National Online SMBs') {\n  delivery.subject = `Your 3-Automation Roadmap is Ready, ${name}!`;\n  delivery.body = `Hi ${name},\n\nYour personalized \"Find 3 Automations\" roadmap is attached. Based on your stack, the highest-impact picks:\n\n1. Unified Order → Inventory → Accounting Sync (saves 5-8 hrs/week)\n2. Customer Comms Unification: WhatsApp + Email + Instagram → One Inbox (saves 3-5 hrs/week)\n3. Automated Daily Dashboard to WhatsApp/Email (saves 2-3 hrs/week + better decisions)\n\nPlus: Time Tax Audit spreadsheet to prioritize your own backlog.\n\n---\nNext step: I'll follow up in 2 days — which automation felt highest leverage?\n\nReady to build? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`;\n  delivery.attachment = 'lead-magnet-online-smb.pdf';\n  delivery.whatsappText = `Hi ${name}! Your 3-automation roadmap is ready 📊\n\nTop picks for your stack:\n1. Order→Inventory→Xero sync (5-8 hrs saved)\n2. WhatsApp+Email+IG → one inbox (3-5 hrs)\n3. Daily dashboard to WhatsApp (2-3 hrs)\n\nPDF attached. Want the Make templates? Free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`;\n  delivery.linkedinText = `Hi ${name}, your personalized 3-automation roadmap is ready. Top pick: unified order→inventory→accounting sync. PDF attached. Want the Make templates? Book a free 30-min call: https://calendly.com/agentcy/30min-strategy`;\n} else {\n  delivery.subject = `Your AI Readiness Scorecard is Ready, ${name}!`;\n  delivery.body = `Hi ${name},\n\nYour AI Readiness & Workflow Scorecard is attached. It scores your practice across 5 dimensions:\n\n1. Client Onboarding & Intake (25% weight)\n2. Knowledge Management & Institutional Memory (20%)\n3. Reporting & Client Communication (20%)\n4. Meeting-to-CRM & Action Tracking (20%)\n5. AI & Automation Maturity (15%)\n\nPlus: Priority Matrix (Effort vs. Impact), 3 Quick-Win Make Blueprints, 90-Day Roadmap, and Tool Budget.\n\n---\nNext step: I'll follow up in 3 days — which dimension scored lowest?\n\nWant the blueprints implemented? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`;\n  delivery.attachment = 'lead-magnet-prof-services.pdf';\n  delivery.whatsappText = `Hi ${name}! Your AI Readiness Scorecard is ready 📈\n\n5-dimension score + priority matrix + 3 quick-win Make blueprints + 90-day roadmap.\n\nPDF attached. Want the blueprints implemented? Free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`;\n  delivery.linkedinText = `Hi ${name}, your AI Readiness Scorecard is ready. 5-dimension score, priority matrix, 3 Make blueprints, 90-day roadmap. PDF attached. Want implementation? Free 30-min call: https://calendly.com/agentcy/30min-strategy`;\n}\n\nreturn [{\n  json: {\n    ...$json,\n    delivery\n  }\n}];",
+        "options": {}
+      },
+      "id": "6",
+      "name": "Build Delivery Content",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1000, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.preferred_channel }}",
+              "operation": "equal",
+              "value2": "Email"
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "If Channel = Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.preferred_channel }}",
+              "operation": "equal",
+              "value2": "WhatsApp"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "If Channel = WhatsApp",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.preferred_channel }}",
+              "operation": "equal",
+              "value2": "LinkedIn"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "If Channel = LinkedIn",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1250, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "michael@agentcy.co.za",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.delivery.subject }}",
+        "text": "={{ $json.delivery.body }}",
+        "attachments": [
+          {
+            "fileName": "={{ $json.delivery.attachment }}",
+            "filePath": "/opt/agentcy/lead-magnets/{{ $json.delivery.attachment }}"
+          }
+        ],
+        "options": {}
+      },
+      "id": "10",
+      "name": "Send Email with PDF",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [1500, 200],
+      "credentials": { "smtp": "Agentcy SMTP" }
+    },
+    {
+      "parameters": {
+        "from": "+27XXXXXXXXX",
+        "to": "={{ $json.phone }}",
+        "text": "={{ $json.delivery.whatsappText }}",
+        "options": {}
+      },
+      "id": "11",
+      "name": "Send WhatsApp (Twilio)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1500, 350],
+      "credentials": { "twilioApi": "Agentcy Twilio" }
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/messages",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer={{ $credentials.linkedinApi.accessToken }}",
+          "Content-Type": "application/json"
+        },
+        "body": "={\"recipients\":[{\"person\":\"urn:li:person:{{ $json.linkedinId }}\"}],\"subject\":\"{{ $json.delivery.subject }}\",\"body\":\"{{ $json.delivery.linkedinText }}\"}",
+        "options": {}
+      },
+      "id": "12",
+      "name": "Send LinkedIn DM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1500, 500],
+      "credentials": { "linkedinApi": "Agentcy LinkedIn" }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 200,
+        "responseData": {
+          "success": true,
+          "message": "Opt-in recorded. Lead magnet incoming via your preferred channel."
+        }
+      },
+      "id": "13",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1750, 350]
+    }
+  ],
+  "connections": {
+    "Webhook: Trades Opt-In": { "main": [[{ "node": "Map to Airtable Fields", "type": "main", "index": 0 }]] },
+    "Webhook: Online SMB Opt-In": { "main": [[{ "node": "Map to Airtable Fields", "type": "main", "index": 0 }]] },
+    "Webhook: Prof Services Opt-In": { "main": [[{ "node": "Map to Airtable Fields", "type": "main", "index": 0 }]] },
+    "Map to Airtable Fields": { "main": [[{ "node": "Create Airtable Record", "type": "main", "index": 0 }]] },
+    "Create Airtable Record": { "main": [[{ "node": "Build Delivery Content", "type": "main", "index": 0 }]] },
+    "Build Delivery Content": { "main": [[{ "node": "If Channel = Email", "type": "main", "index": 0 }, { "node": "If Channel = WhatsApp", "type": "main", "index": 0 }, { "node": "If Channel = LinkedIn", "type": "main", "index": 0 }]] },
+    "If Channel = Email": { "main": [[{ "node": "Send Email with PDF", "type": "main", "index": 0 }], []] },
+    "If Channel = WhatsApp": { "main": [[{ "node": "Send WhatsApp (Twilio)", "type": "main", "index": 0 }], []] },
+    "If Channel = LinkedIn": { "main": [[{ "node": "Send LinkedIn DM", "type": "main", "index": 0 }], []] },
+    "Send Email with PDF": { "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]] },
+    "Send WhatsApp (Twilio)": { "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]] },
+    "Send LinkedIn DM": { "main": [[{ "node": "Success Response", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "id": "agentcy-lead-magnet-delivery"
+}

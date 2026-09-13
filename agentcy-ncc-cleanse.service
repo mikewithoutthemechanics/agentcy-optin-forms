@@ -1,0 +1,17 @@
+[Unit]
+Description=Agentcy NCC Opt-Out Registry Cleansing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/agentcy/ncc-cleanse.py
+EnvironmentFile=/etc/agentcy/ncc-cleanse.env
+User=agentcy
+Group=agentcy
+StandardOutput=journal
+StandardError=journal
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stop Losing Quote Requests to Slow Follow-Up | Agentcy</title>
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --bg-elevated: #141416;
+      --fg: #f4f4f5;
+      --muted: #71717a;
+      --accent: #22d3ee;
+      --accent-dim: #0891b2;
+      --border: #27272a;
+      --card: #18181b;
+      --success: #22c55e;
+      --error: #ef4444;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 10px 10px -5px rgba(0,0,0,0.2);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      line-height: 1.6;
+    }
+    .form-wrapper {
+      width: 100%;
+      max-width: 520px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .form-header {
+      padding: 2.5rem 2rem 1.5rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(34,211,238,0.08) 0%, transparent 100%);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      background: rgba(34,211,238,0.12);
+      border: 1px solid rgba(34,211,238,0.3);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+    .badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--fg);
+      margin-bottom: 0.5rem;
+    }
+    .subhead {
+      color: var(--muted);
+      font-size: 1rem;
+      font-weight: 400;
+    }
+    .form-body { padding: 2rem; }
+    .field-group { margin-bottom: 1.25rem; }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--fg);
+      margin-bottom: 0.5rem;
+    }
+    .required::after { content: " *"; color: var(--accent); }
+    input, select, textarea {
+      width: 100%;
+      padding: 0.875rem 1rem;
+      font-size: 1rem;
+      font-family: inherit;
+      color: var(--fg);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    input:hover, select:hover, textarea:hover { border-color: #3f3f46; }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(34,211,238,0.15);
+      background: var(--bg-elevated);
+    }
+    input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.7; }
+    select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2.5rem; }
+    textarea { min-height: 100px; resize: vertical; }
+    .field-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.35rem; }
+    .field-error { font-size: 0.75rem; color: var(--error); margin-top: 0.35rem; display: none; }
+    .field-error.visible { display: block; }
+    .input-wrapper { position: relative; }
+    .input-wrapper.error input,
+    .input-wrapper.error select,
+    .input-wrapper.error textarea { border-color: var(--error); }
+    .input-wrapper.error .field-error { display: block; }
+
+    .consent-block {
+      background: rgba(34,211,238,0.05);
+      border: 1px solid rgba(34,211,238,0.2);
+      border-radius: var(--radius-sm);
+      padding: 1.25rem;
+      margin: 1.5rem 0;
+    }
+    .checkbox-wrapper {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      cursor: pointer;
+    }
+    .checkbox-wrapper input[type="checkbox"] {
+      width: 1.125rem; height: 1.125rem;
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+      accent-color: var(--accent);
+      border-color: var(--border);
+    }
+    .checkbox-text { font-size: 0.875rem; line-height: 1.5; color: var(--fg); }
+    .checkbox-text a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .checkbox-text a:hover { color: var(--accent-dim); }
+
+    .submit-btn {
+      width: 100%;
+      padding: 1rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
+      margin-top: 0.5rem;
+    }
+    .submit-btn:hover { background: var(--accent-dim); }
+    .submit-btn:active { transform: scale(0.98); }
+    .submit-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(34,211,238,0.4); }
+    .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .submit-btn .spinner { display: none; width: 1.25rem; height: 1.25rem; border: 2px solid transparent; border-top-color: var(--bg); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 0.5rem; vertical-align: middle; }
+    .submit-btn.loading .btn-text { display: none; }
+    .submit-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .trust-signals {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .trust-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--muted); }
+    .trust-item svg { width: 1rem; height: 1rem; color: var(--success); flex-shrink: 0; }
+
+    .success-state { display: none; text-align: center; padding: 3rem 2rem; }
+    .success-state.visible { display: block; }
+    .success-icon { width: 4rem; height: 4rem; margin: 0 auto 1.5rem; color: var(--success); }
+    .success-state h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .success-state p { color: var(--muted); margin-bottom: 1.5rem; }
+    .success-state .next-steps { text-align: left; background: var(--bg); border-radius: var(--radius-sm); padding: 1.25rem; font-size: 0.875rem; }
+    .success-state .next-steps strong { color: var(--fg); display: block; margin-bottom: 0.5rem; }
+    .success-state .next-steps ul { list-style: none; }
+    .success-state .next-steps li { padding: 0.35rem 0; display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
+    .success-state .next-steps li::before { content: "→"; color: var(--accent); font-weight: bold; }
+
+    @media (max-width: 480px) {
+      .form-header, .form-body { padding: 1.5rem; }
+      h1 { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="form-wrapper" id="formWrapper">
+    <header class="form-header">
+      <span class="badge">KZN Trades & Local SMBs</span>
+      <h1>Stop Losing Quote Requests to Slow Follow-Up</h1>
+      <p class="subhead">Get the exact automation blueprint Punctual Plumbers uses to respond in minutes, not hours — and book more jobs while you sleep.</p>
+    </header>
+
+    <form class="form-body" id="optinForm" novalidate data-netlify="true" netlify-honeypot="bot-field">
+            <!-- Netlify honeypot bot detection -->
+      <div style="display: none;" aria-hidden="true">
+        <label>Don't fill this out if you're human: <input name="bot-field" type="text" /></label>
+      </div>
+
+      <input type="hidden" name="form-name" value="optin">
+      <input type="hidden" name="segment" value="KZN Trades/Local SMBs">
+      <input type="hidden" name="lead_magnet" value="Trades: Stop Losing Quotes">
+      <input type="hidden" name="source" value="agentcy-website" id="sourceField">
+      <input type="hidden" name="optin_date" id="optinDateField">
+      <input type="hidden" name="popia_consent" value="Yes" id="popiaConsentField">
+
+      <div class="field-group">
+        <label for="name" class="required">Full Name</label>
+        <div class="input-wrapper" id="nameWrapper">
+          <input type="text" id="name" name="name" placeholder="Thabo Mthembu" required autocomplete="name">
+          <p class="field-error" id="nameError">Please enter your full name</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="business" class="required">Business Name</label>
+        <div class="input-wrapper" id="businessWrapper">
+          <input type="text" id="business" name="business" placeholder="Mthembu Plumbing & Drainage" required autocomplete="organization">
+          <p class="field-error" id="businessError">Business name is required</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="email" class="required">Email Address</label>
+        <div class="input-wrapper" id="emailWrapper">
+          <input type="email" id="email" name="email" placeholder="thabo@mthembuplumbing.co.za" required autocomplete="email">
+          <p class="field-error" id="emailError">Valid email required for lead magnet delivery</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="area" class="required">Area / Suburb</label>
+        <div class="input-wrapper" id="areaWrapper">
+          <input type="text" id="area" name="area" placeholder="Umhlanga, Durban North, Ballito..." required>
+          <p class="field-error" id="areaError">Area helps us tailor local examples</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="preferred_channel" class="required">Preferred Contact Channel</label>
+        <div class="input-wrapper" id="channelWrapper">
+          <select id="preferred_channel" name="preferred_channel" required>
+            <option value="">Select your preference</option>
+            <option value="WhatsApp">WhatsApp (fastest for trades)</option>
+            <option value="Phone">Phone call</option>
+            <option value="Email">Email</option>
+            <option value="In-Person">In-person / on-site</option>
+          </select>
+          <p class="field-error" id="channelError">Please select a channel</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="pain_point" class="required">Biggest Frustration Right Now</label>
+        <div class="input-wrapper" id="painWrapper">
+          <textarea id="pain_point" name="pain_point" placeholder="e.g., 'Leads come in via WhatsApp after hours and I only see them next morning — by then they've called someone else'" required></textarea>
+          <p class="field-hint">Be specific — this shapes the call agenda</p>
+          <p class="field-error" id="painError">Tell us what's costing you jobs</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="current_tools">Current Tools & Stack (optional)</label>
+        <div class="input-wrapper" id="toolsWrapper">
+          <textarea id="current_tools" name="current_tools" placeholder="e.g., WhatsApp Business, Google Sheets, Jobber, paper diary, nothing formal"></textarea>
+          <p class="field-hint">Helps us prep a relevant demo — leave blank if unsure</p>
+        </div>
+      </div>
+
+      <div class="consent-block">
+        <div class="checkbox-wrapper">
+          <input type="checkbox" id="popiaConsent" name="popia_consent_check" required>
+          <span class="checkbox-text">
+            I consent to Agentcy contacting me about automation services via my preferred channel. 
+            I understand I can withdraw consent anytime by replying <strong>STOP</strong>. 
+            <a href="https://agentcy.co.za/privacy" target="_blank" rel="noopener">Privacy Policy</a> • 
+            <a href="https://agentcy.co.za/terms" target="_blank" rel="noopener">Terms</a>
+          </span>
+        </div>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">
+        <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3"/></svg>
+        <span class="btn-text">Get My Free Automation Blueprint →</span>
+      </button>
+
+      <div class="trust-signals">
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>POPIA Compliant</div>
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>No Spam — Ever</div>
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Unsubscribe in 1 Click</div>
+      </div>
+    </form>
+
+    <div class="success-state" id="successState">
+      <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="16 8 12 12 8 10"/></svg>
+      <h2>You're In — Blueprint Coming</h2>
+      <p>Check your WhatsApp/email in the next 5 minutes. We've sent your personalized <strong>"Stop Losing Quotes"</strong> blueprint with 3 automations you can implement this week.</p>
+      <div class="next-steps">
+        <strong>What happens next:</strong>
+        <ul>
+          <li>Blueprint delivered to your chosen channel</li>
+          <li>We'll follow up in 2 days to see what resonated</li>
+          <li>If you want the full setup, book a free 30-min strategy call (link in the blueprint)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const form = document.getElementById('optinForm');
+      const wrapper = document.getElementById('formWrapper');
+      const successState = document.getElementById('successState');
+      const submitBtn = document.getElementById('submitBtn');
+      const popiaConsent = document.getElementById('popiaConsent');
+      const popiaConsentField = document.getElementById('popiaConsentField');
+
+      // Set hidden fields
+      document.getElementById('optinDateField').value = new Date().toISOString().split('T')[0];
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('source')) document.getElementById('sourceField').value = urlParams.get('source');
+
+      // Sync checkbox to hidden field
+      popiaConsent.addEventListener('change', () => {
+        popiaConsentField.value = popiaConsent.checked ? 'Yes' : 'No';
+      });
+
+      // Validation helpers
+      function showError(wrapperId, errorId) {
+        document.getElementById(wrapperId).classList.add('error');
+        document.getElementById(errorId).classList.add('visible');
+      }
+      function clearError(wrapperId, errorId) {
+        document.getElementById(wrapperId).classList.remove('error');
+        document.getElementById(errorId).classList.remove('visible');
+      }
+      function validateField(input, wrapperId, errorId) {
+        if (input.required && !input.value.trim()) {
+          showError(wrapperId, errorId);
+          return false;
+        }
+        clearError(wrapperId, errorId);
+        return true;
+      }
+
+      // Real-time validation
+      ['name', 'business', 'email', 'area', 'preferred_channel', 'pain_point'].forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('blur', () => validateField(el, `${id}Wrapper`, `${id}Error`));
+        el.addEventListener('input', () => { if (el.classList.contains('error')) validateField(el, `${id}Wrapper`, `${id}Error`); });
+      });
+
+      // Form submit
+          // Netlify Forms AJAX submission for better UX
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      let valid = true;
+      ['name', 'business', 'email', 'preferred_channel', 'pain_point'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!validateField(el, `${id}Wrapper`, `${id}Error`)) valid = false;
+      });
+      if (!popiaConsent.checked) { valid = false; }
+      if (!valid) return;
+
+      submitBtn.classList.add('loading');
+      submitBtn.disabled = true;
+
+      const formData = new FormData(form);
+      
+      try {
+        const response = await fetch('/', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: formData
+        });
+        
+        if (response.ok) {
+          form.style.display = 'none';
+          successState.classList.add('visible');
+        } else {
+          throw new Error('Submission failed');
+        }
+      } catch (err) {
+        console.error(err);
+        submitBtn.classList.remove('loading');
+        submitBtn.disabled = false;
+        alert('Something went wrong. Please try again or contact hello@agentcy.co.za');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,252 @@
+{
+  "name": "Agentcy Daily Follow-Up Automation",
+  "flow": [
+    {
+      "id": 1,
+      "module": "cron",
+      "version": 1,
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9,
+              "minute": 0,
+              "timezone": "Africa/Johannesburg"
+            }
+          ]
+        }
+      },
+      "metadata": { "designer": { "x": 100, "y": 100 } }
+    },
+    {
+      "id": 2,
+      "module": "airtable:searchRecords",
+      "version": 1,
+      "parameters": {
+        "base": "app0CK3JUNYEGcCMV",
+        "table": "tblnhzmqneNswTvGd",
+        "filterByFormula": "AND({Touch Count} < 3, {Status} = 'New Opt-In', OR({Next Follow-Up Date} = '', {Next Follow-Up Date} <= TODAY()))",
+        "view": "Grid view",
+        "limit": 100
+      },
+      "metadata": { "designer": { "x": 300, "y": 100 } }
+    },
+    {
+      "id": 3,
+      "module": "iterator",
+      "version": 1,
+      "parameters": {},
+      "metadata": { "designer": { "x": 500, "y": 100 } }
+    },
+    {
+      "id": 4,
+      "module": "tools:setVariable",
+      "version": 1,
+      "parameters": {
+        "name": "touchNumber",
+        "value": "={{ item.fields['Touch Count'] + 1 }}"
+      },
+      "metadata": { "designer": { "x": 700, "y": 50 } }
+    },
+    {
+      "id": 5,
+      "module": "router",
+      "version": 1,
+      "parameters": {
+        "routes": [
+          {
+            "condition": "={{ variables.touchNumber == 1 }}",
+            "modules": [6]
+          },
+          {
+            "condition": "={{ variables.touchNumber == 2 }}",
+            "modules": [7]
+          },
+          {
+            "condition": "={{ variables.touchNumber == 3 }}",
+            "modules": [8]
+          }
+        ]
+      },
+      "metadata": { "designer": { "x": 900, "y": 100 } }
+    },
+    {
+      "id": 6,
+      "module": "tools:composeMessage",
+      "version": 1,
+      "parameters": {
+        "touchType": "touch1_value",
+        "messageTemplates": {
+          "KZN Trades/Local SMBs": {
+            "subject": "Quick question about {{item.fields.Business}}",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nSaw your note about \"{{item.fields['Pain Point']}}\" — that's exactly why we built the \"Stop Losing Quotes\" blueprint.\n\nOne quick thing: the WhatsApp auto-reply + job logging setup takes 15 mins and starts catching after-hours leads tonight.\n\nWant me to send the 3-step setup checklist? Just reply YES.\n\n— Michael @ Agentcy"
+          },
+          "National Online SMBs": {
+            "subject": "Your 3-automation roadmap — one question",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nYour \"Find 3 Automations\" roadmap should've landed. The #1 pick for {{item.fields.Business}}: unified order → inventory → accounting sync (saves 5-8 hrs/week).\n\nQuick question: which platform hurts most right now — Takealot sync, Shopify inventory, or Xero reconciliation?\n\nReply and I'll prioritize that one in the Make blueprint.\n\n— Michael @ Agentcy"
+          },
+          "Professional Services": {
+            "subject": "AI Readiness Scorecard — your top gap",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nYour scorecard highlighted {{item.fields['Pain Point']}} as the biggest friction.\n\nFor professional services, the fastest win is usually Meeting-to-CRM automation (Fathom → Make → Clio/HubSpot). 2-hour setup, 100% capture rate.\n\nWant the exact Make scenario JSON? Reply YES.\n\n— Michael @ Agentcy"
+          }
+        }
+      },
+      "metadata": { "designer": { "x": 1100, "y": 50 } }
+    },
+    {
+      "id": 7,
+      "module": "tools:composeMessage",
+      "version": 1,
+      "parameters": {
+        "touchType": "touch2_proof",
+        "messageTemplates": {
+          "KZN Trades/Local SMBs": {
+            "subject": "How Punctual Plumbers recovered R187K in lost quotes",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nPunctual Plumbers (Ballito) implemented the quote follow-up sequence from the blueprint.\n\nMonth 1 result: R187K in previously-lost quotes recovered. The \"Day 3: quote expiring Friday\" message was the killer.\n\nIf you want that exact Make scenario imported into your account, book a 15-min screen-share:\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael"
+          },
+          "National Online SMBs": {
+            "subject": "Sarah's Homewares: 11 hrs/week back in 3 days",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nSarah (Cape Town, Shopify + Takealot) plugged in the order→inventory→Xero sync.\n\nDay 1: 6.5 hrs saved. Day 3: zero oversells. Month 1: +R340K revenue from faster fulfillment → better reviews.\n\nSame stack? Want the Make template?\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael"
+          },
+          "Professional Services": {
+            "subject": "Naidoo & Associates: 47 hrs/month recovered per partner",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nNaidoo & Associates (Commercial Law, Durban) scored 31/100 on readiness. 90 days later: 67/100.\n\nTop win: Smart Intake Form (Tally → DocuSign → Clio → Slack). Onboarding 21 days → 4 days.\n\nWant the blueprint for your practice?\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael"
+          }
+        }
+      },
+      "metadata": { "designer": { "x": 1100, "y": 200 } }
+    },
+    {
+      "id": 8,
+      "module": "tools:composeMessage",
+      "version": 1,
+      "parameters": {
+        "touchType": "touch3_final",
+        "messageTemplates": {
+          "default": {
+            "subject": "Closing this thread — but the blueprint's yours",
+            "body": "Hi {{item.fields.Name.split(' ')[0]}},\n\nI'll stop following up after this. The {{item.fields['Lead Magnet']}} blueprint is yours to keep — no strings.\n\nIf automation becomes a priority later, the 30-min strategy call is always free:\nhttps://calendly.com/agentcy/30min-strategy\n\nJust reply STOP if you want zero further contact (POPIA compliant).\n\nAll the best,\nMichael @ Agentcy"
+          }
+        }
+      },
+      "metadata": { "designer": { "x": 1100, "y": 350 } }
+    },
+    {
+      "id": 9,
+      "module": "router",
+      "version": 1,
+      "parameters": {
+        "routes": [
+          {
+            "condition": "={{ item.fields['Preferred Channel'] == 'Email' }}",
+            "modules": [10]
+          },
+          {
+            "condition": "={{ item.fields['Preferred Channel'] == 'WhatsApp' }}",
+            "modules": [11]
+          },
+          {
+            "condition": "={{ item.fields['Preferred Channel'] == 'LinkedIn' }}",
+            "modules": [12]
+          }
+        ]
+      },
+      "metadata": { "designer": { "x": 1300, "y": 100 } }
+    },
+    {
+      "id": 10,
+      "module": "sendgrid:sendEmail",
+      "version": 1,
+      "parameters": {
+        "from": "michael@agentcy.co.za",
+        "to": "={{ item.fields.Email }}",
+        "subject": "={{ variables.subject }}",
+        "text": "={{ variables.body }}",
+        "trackOpens": true,
+        "trackClicks": true
+      },
+      "metadata": { "designer": { "x": 1500, "y": 50 } }
+    },
+    {
+      "id": 11,
+      "module": "twilio:sendMessage",
+      "version": 1,
+      "parameters": {
+        "from": "+27XXXXXXXXX",
+        "to": "={{ item.fields.Phone }}",
+        "body": "={{ variables.body }}"
+      },
+      "metadata": { "designer": { "x": 1500, "y": 200 } }
+    },
+    {
+      "id": 12,
+      "module": "http:makeRequest",
+      "version": 1,
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/messages",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{connection.linkedin.accessToken}}",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "recipients": [{ "person": "urn:li:person:{{item.fields['LinkedIn ID']}}" }],
+          "subject": "{{variables.subject}}",
+          "body": "{{variables.body}}"
+        }
+      },
+      "metadata": { "designer": { "x": 1500, "y": 350 } }
+    },
+    {
+      "id": 13,
+      "module": "airtable:updateRecord",
+      "version": 1,
+      "parameters": {
+        "base": "app0CK3JUNYEGcCMV",
+        "table": "tblnhzmqneNswTvGd",
+        "recordId": "{{item.id}}",
+        "fields": {
+          "Touch Count": "{{variables.touchNumber}}",
+          "Last Touch Date": "{{formatDate(now; 'YYYY-MM-DD')}}",
+          "Next Follow-Up Date": "{{formatDate(addDays(now; variables.touchNumber == 3 ? 30 : 3); 'YYYY-MM-DD')}}",
+          "Status": "{{variables.touchNumber >= 3 ? 'Paused' : 'Contacted'}}"
+        }
+      },
+      "metadata": { "designer": { "x": 1700, "y": 200 } }
+    },
+    {
+      "id": 14,
+      "module": "tools:log",
+      "version": 1,
+      "parameters": {
+        "message": "Processed follow-up for {{item.fields.Name}} (Touch {{variables.touchNumber}}) via {{item.fields['Preferred Channel']}}"
+      },
+      "metadata": { "designer": { "x": 1900, "y": 200 } }
+    }
+  ],
+  "connections": [
+    { "from": 1, "to": 2 },
+    { "from": 2, "to": 3 },
+    { "from": 3, "to": 4 },
+    { "from": 4, "to": 5 },
+    { "from": 5, "to": 6 },
+    { "from": 5, "to": 7 },
+    { "from": 5, "to": 8 },
+    { "from": 6, "to": 9 },
+    { "from": 7, "to": 9 },
+    { "from": 8, "to": 9 },
+    { "from": 9, "to": 10 },
+    { "from": 9, "to": 11 },
+    { "from": 9, "to": 12 },
+    { "from": 10, "to": 13 },
+    { "from": 11, "to": 13 },
+    { "from": 12, "to": 13 },
+    { "from": 13, "to": 14 }
+  ],
+  "settings": {
+    "maxErrors": 3,
+    "autoRetry": true,
+    "retryInterval": 300
+  }
+}

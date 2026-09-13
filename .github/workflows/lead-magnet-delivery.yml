@@ -1,0 +1,43 @@
+name: Agentcy Lead Magnet Delivery (Webhook Receiver)
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: 'JSON payload from form submission'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+      AIRTABLE_BASE_ID: app0CK3JUNYEGcCMV
+      AIRTABLE_TABLE_ID: tblnhzmqneNswTvGd
+      SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+      LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+      FROM_EMAIL: michael@agentcy.co.za
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv --quiet
+
+      - name: Deliver lead magnet
+        run: |
+          python scripts/deliver_lead_magnet.py "${{ github.event.inputs.payload }}"

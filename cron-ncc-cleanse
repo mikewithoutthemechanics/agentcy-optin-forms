@@ -1,0 +1,14 @@
+# Agentcy NCC Cleansing Cron Job
+# Runs monthly on the 1st at 02:00 SAST
+# Logs to /var/log/agentcy-ncc-cleanse.log
+# Audit logs to /var/log/agentcy-ncc-audit-YYYYMM.json
+
+# Environment variables (set in /etc/environment or systemd service)
+# AIRTABLE_API_KEY=pat_xxxxxxxxxxxxx
+# NCC_API_URL=https://api.ncc.gov.za/optout
+# SA_DM_CLI=/usr/local/bin/sa-dm
+
+# Monthly cron entry (add to root crontab: sudo crontab -e)
+0 2 1 * * /usr/bin/python3 /opt/agentcy/ncc-cleanse.py >> /var/log/agentcy-ncc-cleanse.log 2>&1
+
+# Alternative: systemd timer (more robust, see agentcy-ncc-cleanse.service + .timer)

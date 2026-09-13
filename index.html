@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentcy — Free Automation Resources</title>
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --bg-elevated: #141416;
+      --fg: #f4f4f5;
+      --muted: #71717a;
+      --accent: #22d3ee;
+      --accent-dim: #0891b2;
+      --border: #27272a;
+      --card: #18181b;
+      --success: #22c55e;
+      --radius: 12px;
+      --shadow: 0 20px 25px -5px rgba(0,0,0,0.4), 0 10px 10px -5px rgba(0,0,0,0.2);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      padding: 3rem 1rem;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 3rem; }
+    .logo { font-size: 2rem; font-weight: 700; color: var(--fg); letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+    .logo span { color: var(--accent); }
+    .tagline { color: var(--muted); font-size: 1.125rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-4px); box-shadow: var(--shadow); }
+    .card-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.7rem;
+      background: rgba(34,211,238,0.12);
+      border: 1px solid rgba(34,211,238,0.3);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      width: fit-content;
+      margin-bottom: 1rem;
+    }
+    .card h3 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; line-height: 1.3; }
+    .card p { color: var(--muted); font-size: 0.9375rem; line-height: 1.6; margin-bottom: 1.5rem; flex: 1; }
+    .card .features { list-style: none; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--fg); }
+    .card .features li { padding: 0.35rem 0; display: flex; align-items: center; gap: 0.5rem; }
+    .card .features li::before { content: "✓"; color: var(--success); font-weight: bold; font-size: 0.75rem; }
+    .card-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.875rem 1.5rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, transform 0.05s;
+    }
+    .card-btn:hover { background: var(--accent-dim); }
+    .card-btn:active { transform: scale(0.98); }
+    .card-btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    .card-btn.secondary:hover { background: rgba(34,211,238,0.1); }
+    footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.875rem; }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    @media (max-width: 600px) { .container { padding: 0 0.5rem; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 class="logo">Agentcy <span>Automation</span></h1>
+      <p class="tagline">Free resources to automate your South African business — no code, no guesswork.</p>
+    </header>
+
+    <div class="grid">
+      <!-- Trades Card -->
+      <article class="card">
+        <span class="card-badge">KZN Trades & Local SMBs</span>
+        <h3>Stop Losing Quote Requests to Slow Follow-Up</h3>
+        <p>The exact automation blueprint Punctual Plumbers uses to respond in minutes, not hours — and book more jobs while you sleep.</p>
+        <ul class="features">
+          <li>WhatsApp instant auto-reply + job logging</li>
+          <li>Quote follow-up sequence that runs 24/7</li>
+          <li>After-hours lead capture + morning handoff</li>
+          <li>Print-ready WhatsApp QR cards for vehicles</li>
+        </ul>
+        <a href="trades-form.html" class="card-btn">Get My Free Blueprint →</a>
+      </article>
+
+      <!-- Online SMB Card -->
+      <article class="card">
+        <span class="card-badge">National Online SMBs</span>
+        <h3>Find Your First 3 Highest-Value Automations</h3>
+        <p>Stop guessing. Get a personalized audit showing exactly which Make/Airtable/Shopify workflows will save you 10+ hrs/week.</p>
+        <ul class="features">
+          <li>Unified order → inventory → accounting sync</li>
+          <li>Customer comms unification (WhatsApp + Email + IG)</li>
+          <li>Automated daily dashboard to WhatsApp/Email</li>
+          <li>Time Tax Audit spreadsheet template</li>
+        </ul>
+        <a href="online-smb-form.html" class="card-btn">Get My 3-Automation Roadmap →</a>
+      </article>
+
+      <!-- Professional Services Card -->
+      <article class="card">
+        <span class="card-badge">Professional Services</span>
+        <h3>AI Readiness & Workflow Checklist</h3>
+        <p>Score your practice across 5 dimensions — client onboarding, knowledge management, reporting, intake, and meeting-to-CRM.</p>
+        <ul class="features">
+          <li>5-dimension readiness scorecard (PDF + Notion)</li>
+          <li>Priority matrix: Effort vs. Impact plot</li>
+          <li>3 quick-win Make blueprints for your gaps</li>
+          <li>90-day automation roadmap + budget</li>
+        </ul>
+        <a href="prof-services-form.html" class="card-btn">Get My AI Readiness Scorecard →</a>
+      </article>
+    </div>
+
+    <footer>
+      <p>All resources are free. POPIA compliant. Unsubscribe in one click.</p>
+      <p><a href="https://agentcy.co.za">agentcy.co.za</a> · <a href="mailto:hello@agentcy.co.za">hello@agentcy.co.za</a> · <a href="https://calendly.com/agentcy/30min-strategy">Book a Free 30-min Strategy Call</a></p>
+    </footer>
+  </div>
+</body>
+</html>

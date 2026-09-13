@@ -1,0 +1,100 @@
+{
+  "name": "Agentcy Daily Follow-Up",
+  "version": "1.0.0",
+  "description": "Pipedream workflow - runs daily 09:00 SAST, fetches due follow-ups from Airtable, sends 3-touch sequence via Email/WhatsApp/LinkedIn",
+  "steps": [
+    {
+      "name": "cron_trigger",
+      "type": "cron",
+      "config": {
+        "cron": "0 7 * * *",
+        "timezone": "Africa/Johannesburg"
+      }
+    },
+    {
+      "name": "fetch_due_followups",
+      "type": "airtable.listRecords",
+      "config": {
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "filterByFormula": "AND({Touch Count} < 3, {Status} = 'New Opt-In', OR({Next Follow-Up Date} = '', {Next Follow-Up Date} <= TODAY()))",
+        "maxRecords": 100
+      }
+    },
+    {
+      "name": "process_each",
+      "type": "runNodeCode",
+      "config": {
+        "code": "const records = steps.fetch_due_followups.records || [];\n\nreturn records.map(record => {\n  const f = record.fields;\n  const touchCount = f['Touch Count'] || 0;\n  const nextTouch = touchCount + 1;\n  const segment = f.Segment;\n  const channel = f['Preferred Channel'];\n  const firstName = f.Name?.split(' ')[0] || 'there';\n  const business = f.Business;\n  const painPoint = f['Pain Point'];\n  const leadMagnet = f['Lead Magnet'];\n\n  let subject = '';\n  let body = '';\n  let whatsappText = '';\n  let linkedinText = '';\n\n  if (nextTouch === 1) {\n    // Touch 1: Value delivery + soft CTA\n    if (segment === 'KZN Trades/Local SMBs') {\n      subject = `Quick question about ${business}`;\n      body = `Hi ${firstName},\\n\\nSaw your note about \"${painPoint}\" — that's exactly why we built the \"Stop Losing Quotes\" blueprint.\\n\\nOne quick thing: the WhatsApp auto-reply + job logging setup takes 15 mins and starts catching after-hours leads tonight.\\n\\nWant me to send the 3-step setup checklist? Just reply YES.\\n\\n— Michael @ Agentcy`;\n      whatsappText = `Hi ${firstName}, saw your note about \"${painPoint}\" — the WhatsApp auto-reply setup takes 15 mins and catches after-hours leads tonight. Want the 3-step checklist? Reply YES. — Michael @ Agentcy`;\n      linkedinText = `Hi ${firstName}, quick question about ${business} — want the WhatsApp auto-reply checklist from the blueprint? Reply YES.`;\n    } else if (segment === 'National Online SMBs') {\n      subject = `Your 3-automation roadmap — one question`;\n      body = `Hi ${firstName},\\n\\nYour \"Find 3 Automations\" roadmap should've landed. The #1 pick for ${business}: unified order → inventory → accounting sync (saves 5-8 hrs/week).\\n\\nQuick question: which platform hurts most right now — Takealot sync, Shopify inventory, or Xero reconciliation?\\n\\nReply and I'll prioritize that one in the Make blueprint.\\n\\n— Michael @ Agentcy`;\n      whatsappText = `Hi ${firstName}, which platform hurts most — Takealot sync, Shopify inventory, or Xero reconciliation? Reply and I'll prioritize in your Make blueprint. — Michael`;\n      linkedinText = `Hi ${firstName}, which platform hurts most for ${business} — Takealot, Shopify, or Xero? I'll prioritize in your roadmap.`;\n    } else {\n      subject = `AI Readiness Scorecard — your top gap`;\n      body = `Hi ${firstName},\\n\\nYour scorecard highlighted ${painPoint} as the biggest friction.\\n\\nFor professional services, the fastest win is usually Meeting-to-CRM automation (Fathom → Make → Clio/HubSpot). 2-hour setup, 100% capture rate.\\n\\nWant the exact Make scenario JSON? Reply YES.\\n\\n— Michael @ Agentcy`;\n      whatsappText = `Hi ${firstName}, your scorecard highlighted ${painPoint}. Fastest win: Meeting-to-CRM automation (2 hr setup). Want the Make scenario? Reply YES. — Michael`;\n      linkedinText = `Hi ${firstName}, your top gap: ${painPoint}. Fastest win: Meeting-to-CRM automation. Want the Make scenario?`;\n    }\n  } else if (nextTouch === 2) {\n    // Touch 2: Social proof + harder CTA\n    if (segment === 'KZN Trades/Local SMBs') {\n      subject = `How Punctual Plumbers recovered R187K in lost quotes`;\n      body = `Hi ${firstName},\\n\\nPunctual Plumbers (Ballito) implemented the quote follow-up sequence from the blueprint.\\n\\nMonth 1 result: R187K in previously-lost quotes recovered. The \"Day 3: quote expiring Friday\" message was the killer.\\n\\nIf you want that exact Make scenario imported into your account, book a 15-min screen-share:\\nhttps://calendly.com/agentcy/30min-strategy\\n\\n— Michael`;\n      whatsappText = `Hi ${firstName}, Punctual Plumbers recovered R187K in lost quotes using the blueprint's follow-up sequence. Want the Make template? Book 15-min: https://calendly.com/agentcy/30min-strategy`;\n      linkedinText = `Hi ${firstName}, Punctual Plumbers recovered R187K with the quote follow-up sequence. Want the Make template? https://calendly.com/agentcy/30min-strategy`;\n    } else if (segment === 'National Online SMBs') {\n      subject = `Sarah's Homewares: 11 hrs/week back in 3 days`;\n      body = `Hi ${firstName},\\n\\nSarah (Cape Town, Shopify + Takealot) plugged in the order→inventory→Xero sync.\\n\\nDay 1: 6.5 hrs saved. Day 3: zero oversells. Month 1: +R340K revenue from faster fulfillment → better reviews.\\n\\nSame stack? Want the Make template?\\nhttps://calendly.com/agentcy/30min-strategy\\n\\n— Michael`;\n      whatsappText = `Hi ${firstName}, Sarah saved 11 hrs/week with order→inventory→Xero sync. Want the Make template? https://calendly.com/agentcy/30min-strategy`;\n      linkedinText = `Hi ${firstName}, Sarah's Homewares saved 11 hrs/week with the order→inventory→Xero sync. Want the template? https://calendly.com/agentcy/30min-strategy`;\n    } else {\n      subject = `Naidoo & Associates: 47 hrs/month recovered per partner`;\n      body = `Hi ${firstName},\\n\\nNaidoo & Associates (Commercial Law, Durban) scored 31/100 on readiness. 90 days later: 67/100.\\n\\nTop win: Smart Intake Form (Tally → DocuSign → Clio → Slack). Onboarding 21 days → 4 days.\\n\\nWant the blueprint for your practice?\\nhttps://calendly.com/agentcy/30min-strategy\\n\\n— Michael`;\n      whatsappText = `Hi ${firstName}, Naidoo & Associates recovered 47 hrs/month/partner with Smart Intake Form. Want the blueprint? https://calendly.com/agentcy/30min-strategy`;\n      linkedinText = `Hi ${firstName}, Naidoo & Associates recovered 47 hrs/month with Smart Intake Form. Want the blueprint? https://calendly.com/agentcy/30min-strategy`;\n    }\n  } else {\n    // Touch 3: Final nudge + opt-out\n    subject = `Closing this thread — but the blueprint's yours`;\n    body = `Hi ${firstName},\\n\\nI'll stop following up after this. The ${leadMagnet} blueprint is yours to keep — no strings.\\n\\nIf automation becomes a priority later, the 30-min strategy call is always free:\\nhttps://calendly.com/agentcy/30min-strategy\\n\\nJust reply STOP if you want zero further contact (POPIA compliant).\\n\\nAll the best,\\nMichael @ Agentcy`;\n    whatsappText = `Hi ${firstName}, final follow-up. The ${leadMagnet} blueprint is yours. Free 30-min call always available: https://calendly.com/agentcy/30min-strategy. Reply STOP to opt out.`;\n    linkedinText = `Hi ${firstName}, final note. Blueprint's yours. Free call: https://calendly.com/agentcy/30min-strategy. Reply STOP to opt out.`;\n  }\n\n  return {\n    recordId: record.id,\n    email: f.Email || '',\n    phone: f.Phone || '',\n    linkedinId: f['LinkedIn ID'] || '',\n    channel,\n    touchNumber: nextTouch,\n    subject,\n    body,\n    whatsappText,\n    linkedinText,\n    nextFollowUpDate: new Date(Date.now() + (nextTouch === 3 ? 30 : 3) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],\n    lastTouchDate: new Date().toISOString().split('T')[0],\n    newStatus: nextTouch >= 3 ? 'Paused' : 'Contacted'\n  };\n});"
+      }
+    },
+    {
+      "name": "send_followup",
+      "type": "runNodeCode",
+      "config": {
+        "code": "// This step uses Pipedream's built-in actions via $send.*\n// We'll route in the next steps based on channel\nreturn steps.process_each;"
+      }
+    },
+    {
+      "name": "send_email",
+      "type": "sendgrid.sendEmail",
+      "config": {
+        "from": "michael@agentcy.co.za",
+        "to": "{{item.email}}",
+        "subject": "{{item.subject}}",
+        "text": "{{item.body}}"
+      },
+      "condition": "{{item.channel === 'Email'}}"
+    },
+    {
+      "name": "send_whatsapp",
+      "type": "twilio.sendMessage",
+      "config": {
+        "from": "+27XXXXXXXXX",
+        "to": "{{item.phone}}",
+        "body": "{{item.whatsappText}}"
+      },
+      "condition": "{{item.channel === 'WhatsApp'}}"
+    },
+    {
+      "name": "send_linkedin",
+      "type": "httpRequest",
+      "config": {
+        "url": "https://api.linkedin.com/v2/messages",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{pd.env.LINKEDIN_ACCESS_TOKEN}}",
+          "Content-Type": "application/json"
+        },
+        "data": {
+          "recipients": [{ "person": "urn:li:person:{{item.linkedinId}}" }],
+          "subject": "{{item.subject}}",
+          "body": "{{item.linkedinText}}"
+        }
+      },
+      "condition": "{{item.channel === 'LinkedIn'}}"
+    },
+    {
+      "name": "update_airtable",
+      "type": "airtable.updateRecord",
+      "config": {
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "recordId": "{{item.recordId}}",
+        "fields": {
+          "Touch Count": "{{item.touchNumber}}",
+          "Last Touch Date": "{{item.lastTouchDate}}",
+          "Next Follow-Up Date": "{{item.nextFollowUpDate}}",
+          "Status": "{{item.newStatus}}"
+        }
+      }
+    }
+  ],
+  "env": [
+    "AIRTABLE_API_KEY",
+    "SENDGRID_API_KEY",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "LINKEDIN_ACCESS_TOKEN"
+  ]
+}

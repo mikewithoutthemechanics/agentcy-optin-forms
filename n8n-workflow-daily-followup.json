@@ -1,0 +1,198 @@
+{
+  "name": "Agentcy Daily Follow-Up Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "Africa/Johannesburg"
+      },
+      "id": "1",
+      "name": "Cron: Daily 09:00 SAST",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "filterByFormula": "AND({Touch Count} < 3, {Status} = 'New Opt-In', OR({Next Follow-Up Date} = '', {Next Follow-Up Date} <= TODAY()))",
+        "options": {}
+      },
+      "id": "2",
+      "name": "Get Due Follow-Ups",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "credentials": { "airtableApi": "Agentcy Airtable" }
+    },
+    {
+      "parameters": {
+        "functionCode": "const records = items[0].json.records || [];\n\nconst followUps = records.map(record => {\n  const fields = record.fields;\n  const touchCount = fields['Touch Count'] || 0;\n  const nextTouch = touchCount + 1;\n  \n  // Determine message based on touch number and segment\n  const segment = fields['Segment'];\n  const channel = fields['Preferred Channel'];\n  const name = fields['Name']?.split(' ')[0] || 'there';\n  const business = fields['Business'];\n  const painPoint = fields['Pain Point'];\n  const leadMagnet = fields['Lead Magnet'];\n  \n  let message = '';\n  let subject = '';\n  \n  if (nextTouch === 1) {\n    // Touch 1: Value delivery + soft CTA (Day 2)\n    if (segment === 'KZN Trades/Local SMBs') {\n      subject = `Quick question about ${business}`;\n      message = `Hi ${name},\n\nSaw your note about \"${painPoint}\" — that's exactly why we built the \"Stop Losing Quotes\" blueprint.\n\nOne quick thing: the WhatsApp auto-reply + job logging setup takes 15 mins and starts catching after-hours leads tonight.\n\nWant me to send the 3-step setup checklist? Just reply YES.\n\n— Michael @ Agentcy`;\n    } else if (segment === 'National Online SMBs') {\n      subject = `Your 3-automation roadmap — one question`;\n      message = `Hi ${name},\n\nYour \"Find 3 Automations\" roadmap should've landed. The #1 pick for ${business}: unified order → inventory → accounting sync (saves 5-8 hrs/week).\n\nQuick question: which platform hurts most right now — Takealot sync, Shopify inventory, or Xero reconciliation?\n\nReply and I'll prioritize that one in the Make blueprint.\n\n— Michael @ Agentcy`;\n    } else {\n      subject = `AI Readiness Scorecard — your top gap`;\n      message = `Hi ${name},\n\nYour scorecard highlighted ${painPoint} as the biggest friction.\n\nFor professional services, the fastest win is usually Meeting-to-CRM automation (Fathom → Make → Clio/HubSpot). 2-hour setup, 100% capture rate.\n\nWant the exact Make scenario JSON? Reply YES.\n\n— Michael @ Agentcy`;\n    }\n  } else if (nextTouch === 2) {\n    // Touch 2: Social proof + harder CTA (Day 5-7)\n    if (segment === 'KZN Trades/Local SMBs') {\n      subject = `How Punctual Plumbers recovered R187K in lost quotes`;\n      message = `Hi ${name},\n\nPunctual Plumbers (Ballito) implemented the quote follow-up sequence from the blueprint.\n\nMonth 1 result: R187K in previously-lost quotes recovered. The \"Day 3: quote expiring Friday\" message was the killer.\n\nIf you want that exact Make scenario imported into your account, book a 15-min screen-share:\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael`;\n    } else if (segment === 'National Online SMBs') {\n      subject = `Sarah's Homewares: 11 hrs/week back in 3 days`;\n      message = `Hi ${name},\n\nSarah (Cape Town, Shopify + Takealot) plugged in the order→inventory→Xero sync.\n\nDay 1: 6.5 hrs saved. Day 3: zero oversells. Month 1: +R340K revenue from faster fulfillment → better reviews.\n\nSame stack? Want the Make template?\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael`;\n    } else {\n      subject = `Naidoo & Associates: 47 hrs/month recovered per partner`;\n      message = `Hi ${name},\n\nNaidoo & Associates (Commercial Law, Durban) scored 31/100 on readiness. 90 days later: 67/100.\n\nTop win: Smart Intake Form (Tally → DocuSign → Clio → Slack). Onboarding 21 days → 4 days.\n\nWant the blueprint for your practice?\nhttps://calendly.com/agentcy/30min-strategy\n\n— Michael`;\n    }\n  } else {\n    // Touch 3: Final nudge + opt-out (Day 10-14)\n    subject = `Closing this thread — but the blueprint's yours`;\n    message = `Hi ${name},\n\nI'll stop following up after this. The ${leadMagnet} blueprint is yours to keep — no strings.\n\nIf automation becomes a priority later, the 30-min strategy call is always free:\nhttps://calendly.com/agentcy/30min-strategy\n\nJust reply STOP if you want zero further contact (POPIA compliant).\n\nAll the best,\nMichael @ Agentcy`;\n  }\n  \n  return {\n    json: {\n      recordId: record.id,\n      name: fields['Name'],\n      email: fields['Email'] || '',\n      phone: fields['Phone'] || '',\n      whatsapp: fields['Phone'] || '', // assuming phone = WhatsApp for now\n      channel: channel,\n      segment: segment,\n      touchNumber: nextTouch,\n      subject: subject,\n      message: message,\n      nextFollowUpDate: new Date(Date.now() + (nextTouch === 3 ? 30 : 3) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],\n      lastTouchDate: new Date().toISOString().split('T')[0]\n    }\n  };\n});\n\nreturn followUps;",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Build Follow-Up Messages",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.channel }}",
+              "operation": "equal",
+              "value2": "Email"
+            }
+          ]
+        }
+      },
+      "id": "4",
+      "name": "If Channel = Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.channel }}",
+              "operation": "equal",
+              "value2": "WhatsApp"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "If Channel = WhatsApp",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.channel }}",
+              "operation": "equal",
+              "value2": "LinkedIn"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "If Channel = LinkedIn",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "michael@agentcy.co.za",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "text": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "7",
+      "name": "Send Email (SendGrid/SMTP)",
+      "type": "n8n-nodes-base.sendEmail",
+      "typeVersion": 1,
+      "position": [1250, 200],
+      "credentials": { "smtp": "Agentcy SMTP" }
+    },
+    {
+      "parameters": {
+        "from": "+27XXXXXXXXX",
+        "to": "={{ $json.whatsapp }}",
+        "text": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "8",
+      "name": "Send WhatsApp (Twilio)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1250, 350],
+      "credentials": { "twilioApi": "Agentcy Twilio" }
+    },
+    {
+      "parameters": {
+        "url": "https://api.linkedin.com/v2/messages",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer={{ $credentials.linkedinApi.accessToken }}",
+          "Content-Type": "application/json"
+        },
+        "body": "={\"recipients\":[{\"person\":\"urn:li:person:{{ $json.linkedinId }}\"}],\"subject\":\"{{ $json.subject }}\",\"body\":\"{{ $json.message }}\"}",
+        "options": {}
+      },
+      "id": "9",
+      "name": "Send LinkedIn DM (HTTP Request)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 2,
+      "position": [1250, 500],
+      "credentials": { "linkedinApi": "Agentcy LinkedIn" }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "id": "={{ $json.recordId }}",
+        "fields": {
+          "Touch Count": "={{ $json.touchNumber }}",
+          "Last Touch Date": "={{ $json.lastTouchDate }}",
+          "Next Follow-Up Date": "={{ $json.nextFollowUpDate }}",
+          "Status": "={{ $json.touchNumber >= 3 ? 'Paused' : 'Contacted' }}"
+        },
+        "options": {}
+      },
+      "id": "10",
+      "name": "Update Airtable Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [1500, 350],
+      "credentials": { "airtableApi": "Agentcy Airtable" }
+    },
+    {
+      "parameters": {
+        "functionCode": "const results = items[0].json;\nconsole.log(`Processed ${results.length} follow-ups`);\nreturn [{json: {processed: results.length, timestamp: new Date().toISOString()}}];",
+        "options": {}
+      },
+      "id": "11",
+      "name": "Log Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1750, 350]
+    }
+  ],
+  "connections": {
+    "Cron: Daily 09:00 SAST": { "main": [[{ "node": "Get Due Follow-Ups", "type": "main", "index": 0 }]] },
+    "Get Due Follow-Ups": { "main": [[{ "node": "Build Follow-Up Messages", "type": "main", "index": 0 }]] },
+    "Build Follow-Up Messages": { "main": [[{ "node": "If Channel = Email", "type": "main", "index": 0 }, { "node": "If Channel = WhatsApp", "type": "main", "index": 0 }, { "node": "If Channel = LinkedIn", "type": "main", "index": 0 }]] },
+    "If Channel = Email": { "main": [[{ "node": "Send Email (SendGrid/SMTP)", "type": "main", "index": 0 }], []] },
+    "If Channel = WhatsApp": { "main": [[{ "node": "Send WhatsApp (Twilio)", "type": "main", "index": 0 }], []] },
+    "If Channel = LinkedIn": { "main": [[{ "node": "Send LinkedIn DM (HTTP Request)", "type": "main", "index": 0 }], []] },
+    "Send Email (SendGrid/SMTP)": { "main": [[{ "node": "Update Airtable Record", "type": "main", "index": 0 }]] },
+    "Send WhatsApp (Twilio)": { "main": [[{ "node": "Update Airtable Record", "type": "main", "index": 0 }]] },
+    "Send LinkedIn DM (HTTP Request)": { "main": [[{ "node": "Update Airtable Record", "type": "main", "index": 0 }]] },
+    "Update Airtable Record": { "main": [[{ "node": "Log Summary", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "id": "agentcy-daily-followup"
+}

@@ -1,0 +1,100 @@
+{
+  "name": "Agentcy Lead Magnet Delivery",
+  "version": "1.0.0",
+  "description": "Pipedream workflow for Agentcy opt-in forms",
+  "steps": [
+    {
+      "name": "receive_webhook",
+      "type": "httpTrigger",
+      "config": {
+        "path": "agentcy-optin",
+        "method": "POST",
+        "response": {
+          "status": 200,
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "success": true,
+            "message": "Opt-in recorded. Lead magnet incoming."
+          }
+        }
+      }
+    },
+    {
+      "name": "validate_and_route",
+      "type": "runNodeCode",
+      "config": {
+        "code": "const segment = event.body.segment;\nconst channel = event.body.preferred_channel;\nconst firstName = event.body.name?.split(' ')[0] || 'there';\nconst email = event.body.email;\nconst phone = event.body.phone;\nconst linkedinId = event.body.linkedinId;\n\nif (!event.body.name || !event.body.business || !event.body.preferred_channel || !event.body.pain_point || !event.body.popia_consent) {\n  throw new Error('Missing required fields');\n}\nif (event.body.popia_consent !== 'Yes') {\n  throw new Error('POPIA consent required');\n}\n\nlet delivery = {};\n\nif (segment === 'KZN Trades/Local SMBs') {\n  delivery = {\n    subject: `Your \"Stop Losing Quotes\" Blueprint is Ready, ${firstName}!`,\n    body: `Hi ${firstName},\n\nYour personalized automation blueprint is attached. It includes:\n\n1. WhatsApp Instant Auto-Reply + Job Logging (15 min setup)\n2. Quote Follow-Up Sequence That Runs 24/7 (30 min setup)\n3. After-Hours Lead Capture + Morning Handoff (20 min setup)\n\nPlus: Print-ready WhatsApp QR cards for your vehicles.\n\nTotal setup time: ~1.5 hours. All free tools (Make, Airtable, WhatsApp Business).\n\n---\nNext step: I'll follow up in 2 days to see which automation you want to implement first.\n\nWant us to build it for you? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`,\n    attachment: 'lead-magnet-trades.pdf',\n    whatsappText: `Hi ${firstName}! Your \"Stop Losing Quotes\" blueprint is ready \ud83d\udccb\n\n3 automations Punctual Plumbers uses to respond in minutes, not hours:\n1. WhatsApp auto-reply + job log (15 min)\n2. Quote follow-up sequence (30 min) \n3. After-hours capture (20 min)\n\nPDF attached. Want the Make templates imported? Book a free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`,\n    linkedinText: `Hi ${firstName}, your \"Stop Losing Quotes\" blueprint is ready. 3 trade-specific automations you can implement this week. PDF attached. Want the Make templates? Book a free 30-min strategy call: https://calendly.com/agentcy/30min-strategy`\n  };\n} else if (segment === 'National Online SMBs') {\n  delivery = {\n    subject: `Your 3-Automation Roadmap is Ready, ${firstName}!`,\n    body: `Hi ${firstName},\n\nYour personalized \"Find 3 Automations\" roadmap is attached. Based on your stack, the highest-impact picks:\n\n1. Unified Order \u2192 Inventory \u2192 Accounting Sync (saves 5-8 hrs/week)\n2. Customer Comms Unification: WhatsApp + Email + Instagram \u2192 One Inbox (saves 3-5 hrs/week)\n3. Automated Daily Dashboard to WhatsApp/Email (saves 2-3 hrs/week + better decisions)\n\nPlus: Time Tax Audit spreadsheet to prioritize your own backlog.\n\n---\nNext step: I'll follow up in 2 days \u2014 which automation felt highest leverage?\n\nReady to build? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`,\n    attachment: 'lead-magnet-online-smb.pdf',\n    whatsappText: `Hi ${firstName}! Your 3-automation roadmap is ready \ud83d\udcca\n\nTop picks for your stack:\n1. Order\u2192Inventory\u2192Xero sync (5-8 hrs saved)\n2. WhatsApp+Email+IG \u2192 one inbox (3-5 hrs)\n3. Daily dashboard to WhatsApp (2-3 hrs)\n\nPDF attached. Want the Make templates? Free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`,\n    linkedinText: `Hi ${firstName}, your personalized 3-automation roadmap is ready. Top pick: unified order\u2192inventory\u2192accounting sync. PDF attached. Want the Make templates? Book a free 30-min call: https://calendly.com/agentcy/30min-strategy`\n  };\n} else {\n  delivery = {\n    subject: `Your AI Readiness Scorecard is Ready, ${firstName}!`,\n    body: `Hi ${firstName},\n\nYour AI Readiness & Workflow Scorecard is attached. It scores your practice across 5 dimensions:\n\n1. Client Onboarding & Intake (25% weight)\n2. Knowledge Management & Institutional Memory (20%)\n3. Reporting & Client Communication (20%)\n4. Meeting-to-CRM & Action Tracking (20%)\n5. AI & Automation Maturity (15%)\n\nPlus: Priority Matrix (Effort vs. Impact), 3 Quick-Win Make Blueprints, 90-Day Roadmap, and Tool Budget.\n\n---\nNext step: I'll follow up in 3 days \u2014 which dimension scored lowest?\n\nWant the blueprints implemented? Book a free 30-min strategy call:\nhttps://calendly.com/agentcy/30min-strategy\n\n---\nMichael @ Agentcy\nhello@agentcy.co.za\n+27 XX XXX XXXX\n\nP.S. Reply STOP anytime to opt out (POPIA compliant).`,\n    attachment: 'lead-magnet-prof-services.pdf',\n    whatsappText: `Hi ${firstName}! Your AI Readiness Scorecard is ready \ud83d\udcc8\n\n5-dimension score + priority matrix + 3 quick-win Make blueprints + 90-day roadmap.\n\nPDF attached. Want the blueprints implemented? Free 30-min call:\nhttps://calendly.com/agentcy/30min-strategy\n\nReply STOP to opt out.`,\n    linkedinText: `Hi ${firstName}, your AI Readiness Scorecard is ready. 5-dimension score, priority matrix, 3 Make blueprints, 90-day roadmap. PDF attached. Want implementation? Free 30-min call: https://calendly.com/agentcy/30min-strategy`\n  };\n}\n\nreturn {\n  record: {\n    Name: event.body.name,\n    Business: event.body.business,\n    Segment: segment,\n    Area: event.body.area || '',\n    'Preferred Channel': channel,\n    'Pain Point': event.body.pain_point,\n    'Current Tools': event.body.current_tools || '',\n    'POPIA Consent': event.body.popia_consent,\n    'Consent Basis': event.body.consent_basis || 'Form Opt-In',\n    Source: event.body.source || 'website',\n    'Opt-In Date': event.body.optin_date || new Date().toISOString().split('T')[0],\n    Status: 'New Opt-In',\n    'Booked Call': 'No',\n    Attended: 'No',\n    Qualified: 'No',\n    'Proposal Sent': 'No',\n    Outcome: '',\n    'Next Action': 'Send lead magnet + schedule follow-up',\n    'Next Follow-Up Date': new Date(Date.now() + 2*24*60*60*1000).toISOString().split('T')[0],\n    'Touch Count': 0,\n    'Last Touch Date': new Date().toISOString().split('T')[0],\n    'Lead Magnet': event.body.lead_magnet\n  },\n  delivery,\n  channel,\n  email,\n  phone,\n  linkedinId\n};"
+      }
+    },
+    {
+      "name": "create_airtable_record",
+      "type": "airtable.createRecord",
+      "config": {
+        "baseId": "app0CK3JUNYEGcCMV",
+        "tableId": "tblnhzmqneNswTvGd",
+        "fields": "{{steps.validate_and_route.record}}"
+      }
+    },
+    {
+      "name": "send_email",
+      "type": "sendgrid.sendEmail",
+      "config": {
+        "from": "michael@agentcy.co.za",
+        "to": "{{steps.validate_and_route.email}}",
+        "subject": "{{steps.validate_and_route.delivery.subject}}",
+        "text": "{{steps.validate_and_route.delivery.body}}",
+        "attachments": [
+          {
+            "filename": "{{steps.validate_and_route.delivery.attachment}}",
+            "content": "{{steps.validate_and_route.delivery.attachment}}",
+            "type": "application/pdf",
+            "disposition": "attachment"
+          }
+        ]
+      },
+      "condition": "{{steps.validate_and_route.channel === 'Email'}}"
+    },
+    {
+      "name": "send_whatsapp",
+      "type": "twilio.sendMessage",
+      "config": {
+        "from": "+27XXXXXXXXX",
+        "to": "{{steps.validate_and_route.phone}}",
+        "body": "{{steps.validate_and_route.delivery.whatsappText}}",
+        "mediaUrl": "https://your-cdn.com/lead-magnets/{{steps.validate_and_route.delivery.attachment}}"
+      },
+      "condition": "{{steps.validate_and_route.channel === 'WhatsApp'}}"
+    },
+    {
+      "name": "send_linkedin",
+      "type": "httpRequest",
+      "config": {
+        "url": "https://api.linkedin.com/v2/messages",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{pd.env.LINKEDIN_ACCESS_TOKEN}}",
+          "Content-Type": "application/json"
+        },
+        "data": {
+          "recipients": [
+            {
+              "person": "urn:li:person:{{steps.validate_and_route.linkedinId}}"
+            }
+          ],
+          "subject": "{{steps.validate_and_route.delivery.subject}}",
+          "body": "{{steps.validate_and_route.delivery.linkedinText}}"
+        }
+      },
+      "condition": "{{steps.validate_and_route.channel === 'LinkedIn'}}"
+    }
+  ],
+  "env": [
+    "AIRTABLE_API_KEY",
+    "SENDGRID_API_KEY",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "LINKEDIN_ACCESS_TOKEN"
+  ]
+}

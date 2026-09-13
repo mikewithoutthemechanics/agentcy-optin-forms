@@ -1,0 +1,12 @@
+[Unit]
+Description=Monthly Agentcy NCC Cleansing Timer
+Requires=agentcy-ncc-cleanse.service
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+RandomizedDelaySec=1h
+AccuracySec=1h
+
+[Install]
+WantedBy=timers.target

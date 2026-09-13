@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Find Your 3 Highest-Value Automations | Agentcy</title>
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --bg-elevated: #141416;
+      --fg: #f4f4f5;
+      --muted: #71717a;
+      --accent: #22d3ee;
+      --accent-dim: #0891b2;
+      --accent-soft: rgba(34,211,238,0.12);
+      --border: #27272a;
+      --card: #18181b;
+      --success: #22c55e;
+      --error: #ef4444;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      line-height: 1.6;
+    }
+    .form-wrapper {
+      width: 100%;
+      max-width: 480px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .form-header {
+      padding: 2.5rem 2rem 1.5rem;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(34,211,238,0.06) 0%, transparent 100%);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      background: var(--accent-soft);
+      border: 1px solid rgba(34,211,238,0.3);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 1rem;
+    }
+    .badge::before { content: ""; width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 800;
+      line-height: 1.15;
+      color: var(--fg);
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+    }
+    .subhead {
+      color: var(--muted);
+      font-size: 1rem;
+      font-weight: 400;
+      max-width: 360px;
+      margin: 0 auto;
+    }
+    .form-body { padding: 0 2rem 2rem; }
+    
+    .segment-selector {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .segment-card {
+      position: relative;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem 0.75rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: var(--bg);
+    }
+    .segment-card:hover { border-color: var(--accent); }
+    .segment-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      box-shadow: 0 0 0 3px rgba(34,211,238,0.15);
+    }
+    .segment-card input { position: absolute; opacity: 0; pointer-events: none; }
+    .segment-icon { font-size: 1.5rem; line-height: 1; margin-bottom: 0.5rem; }
+    .segment-label { font-size: 0.75rem; font-weight: 600; color: var(--fg); text-transform: uppercase; letter-spacing: 0.05em; }
+    .segment-desc { font-size: 0.65rem; color: var(--muted); margin-top: 0.25rem; line-height: 1.3; }
+    
+    .field-group { margin-bottom: 1.25rem; }
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 0.5rem;
+    }
+    .input-wrapper { position: relative; }
+    input, select {
+      width: 100%;
+      padding: 1rem 1rem;
+      font-size: 1rem;
+      font-family: inherit;
+      color: var(--fg);
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    input:hover, select:hover { border-color: #3f3f46; }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34,211,238,0.15);
+      background: var(--bg-elevated);
+    }
+    input::placeholder { color: var(--muted); opacity: 0.6; }
+    .input-wrapper.error input { border-color: var(--error); }
+    .field-error {
+      font-size: 0.75rem; color: var(--error);
+      margin-top: 0.4rem; display: none;
+    }
+    .field-error.visible { display: block; }
+    
+    .contact-toggle {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .toggle-btn {
+      flex: 1;
+      padding: 0.875rem 1rem;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--fg);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .toggle-btn:hover { border-color: var(--accent); }
+    .toggle-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg);
+    }
+    .toggle-btn svg { width: 1.25rem; height: 1.25rem; }
+    
+    .consent-inline {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin: 1rem 0 1.5rem;
+      line-height: 1.4;
+    }
+    .consent-inline input[type="checkbox"] {
+      width: 1.125rem; height: 1.125rem;
+      accent-color: var(--accent);
+      flex-shrink: 0;
+    }
+    .consent-inline a { color: var(--accent); text-underline-offset: 2px; }
+    
+    .submit-btn {
+      width: 100%;
+      padding: 1.125rem 1.5rem;
+      font-size: 1.0625rem;
+      font-weight: 700;
+      font-family: inherit;
+      color: var(--bg);
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.15s, transform 0.05s, box-shadow 0.15s;
+    }
+    .submit-btn:hover { background: var(--accent-dim); }
+    .submit-btn:active { transform: scale(0.98); }
+    .submit-btn:focus-visible { outline: none; box-shadow: 0 0 0 4px rgba(34,211,238,0.4); }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .submit-btn .spinner { display: none; width: 1.25rem; height: 1.25rem; border: 3px solid transparent; border-top-color: var(--bg); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 0.5rem; vertical-align: middle; }
+    .submit-btn.loading .btn-text { display: none; }
+    .submit-btn.loading .spinner { display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .trust-line {
+      display: flex;
+      justify-content: center;
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .trust-item { display: flex; align-items: center; gap: 0.35rem; }
+    .trust-item svg { width: 0.875rem; height: 0.875rem; color: var(--success); }
+    
+    .success-state { display: none; text-align: center; padding: 3rem 2rem; }
+    .success-state.visible { display: block; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .success-icon { width: 5rem; height: 5rem; margin: 0 auto 1.5rem; color: var(--success); }
+    .success-state h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .success-state p { color: var(--muted); margin-bottom: 1.5rem; max-width: 300px; margin-left: auto; margin-right: auto; }
+    .success-state .delivery-info {
+      background: var(--bg);
+      border-radius: var(--radius-sm);
+      padding: 1.25rem;
+      text-align: left;
+      font-size: 0.875rem;
+    }
+    .success-state .delivery-info strong { color: var(--fg); display: block; margin-bottom: 0.5rem; }
+    .success-state .delivery-info p { margin: 0.35rem 0; font-size: 0.8rem; color: var(--muted); }
+    .success-state .delivery-info .highlight { color: var(--accent); font-weight: 600; }
+    
+    @media (max-width: 480px) {
+      .form-header, .form-body { padding: 1.5rem; }
+      .segment-selector { grid-template-columns: 1fr; }
+      .segment-card { padding: 1rem; text-align: left; display: flex; align-items: center; gap: 1rem; }
+      .segment-icon { font-size: 2rem; margin: 0; min-width: 3rem; }
+      .segment-label { font-size: 0.875rem; }
+      .segment-desc { font-size: 0.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="form-wrapper" id="formWrapper">
+    <header class="form-header">
+      <span class="badge">Online SMBs</span>
+      <h1>Find Your 3 Highest-Value Automations</h1>
+      <p class="subhead">Stop guessing. We analyze your stack (Shopify, Takealot, Xero, etc.) and show the exact 3 workflows saving 10+ hrs/week.</p>
+    </header>
+
+    <form class="form-body" id="optinForm" novalidate data-netlify="true" netlify-honeypot="bot-field">
+      <input type="hidden" name="form-name" value="online-smb-optin">
+      <input type="hidden" name="segment" value="National Online SMBs" id="segmentField">
+      <input type="hidden" name="lead_magnet" value="Online SMB: Find 3 Automations">
+      <input type="hidden" name="source" value="agentcy-website" id="sourceField">
+      <input type="hidden" name="optin_date" id="optinDateField">
+      <input type="hidden" name="preferred_channel" id="channelField" value="Email">
+      <input type="hidden" name="popia_consent" value="Yes" id="popiaConsentField">
+      
+      <div style="display: none;" aria-hidden="true">
+        <label>Don't fill this out: <input name="bot-field" type="text" /></label>
+      </div>
+
+      <div class="segment-selector" role="radiogroup" aria-label="Select your business type">
+        <label class="segment-card" for="seg-trades">
+          <input type="radio" name="segment_choice" id="seg-trades" value="KZN Trades/Local SMBs">
+          <div>
+            <div class="segment-icon">🔧</div>
+            <div class="segment-label">Trades & Local SMBs</div>
+            <div class="segment-desc">Plumbers, electricians, contractors</div>
+          </div>
+        </label>
+        <label class="segment-card selected" for="seg-online">
+          <input type="radio" name="segment_choice" id="seg-online" value="National Online SMBs" checked>
+          <div>
+            <div class="segment-icon">🛒</div>
+            <div class="segment-label">Online SMBs</div>
+            <div class="segment-desc">Shopify, Takealot, e-commerce</div>
+          </div>
+        </label>
+        <label class="segment-card" for="seg-prof">
+          <input type="radio" name="segment_choice" id="seg-prof" value="Professional Services">
+          <div>
+            <div class="segment-icon">📋</div>
+            <div class="segment-label">Professional Services</div>
+            <div class="segment-desc">Law, accounting, consulting</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="field-group">
+        <label for="name">Your Name</label>
+        <div class="input-wrapper" id="nameWrapper">
+          <input type="text" id="name" name="name" placeholder="Sarah" required autocomplete="given-name">
+          <p class="field-error" id="nameError">First name only is fine</p>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label>Best Way to Reach You</label>
+        <div class="contact-toggle">
+          <button type="button" class="toggle-btn" data-channel="Email" id="btn-email">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            Email
+          </button>
+          <button type="button" class="toggle-btn active" data-channel="WhatsApp" id="btn-whatsapp">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            WhatsApp
+          </button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="contact" id="contactLabel">Email Address</label>
+        <div class="input-wrapper" id="contactWrapper">
+          <input type="email" id="contact" name="contact" placeholder="sarah@business.co.za" required autocomplete="email">
+          <p class="field-error" id="contactError">Enter your email</p>
+        </div>
+      </div>
+
+      <div class="consent-inline">
+        <input type="checkbox" id="popiaConsent" name="popia_consent_check" required>
+        <span>I agree to be contacted by Agentcy. <a href="https://agentcy.co.za/privacy" target="_blank" rel="noopener">Privacy</a> · Reply STOP to opt out (POPIA)</span>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">
+        <svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="3"/></svg>
+        <span class="btn-text">Get My 3-Automation Roadmap →</span>
+      </button>
+
+      <div class="trust-line">
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>POPIA Compliant</div>
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>No Spam</div>
+        <div class="trust-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>1-Click Unsub</div>
+      </div>
+    </form>
+
+    <div class="success-state" id="successState">
+      <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="16 8 12 12 8 10"/></svg>
+      <h2>Roadmap Sent! 📊</h2>
+      <p>Check your email in the next <strong class="highlight">2 minutes</strong>. Your personalized roadmap shows the exact 3 automations with effort vs. impact scores.</p>
+      <div class="delivery-info">
+        <strong>What you'll get:</strong>
+        <p>✅ Order → Inventory → Accounting sync (5-8 hrs saved)</p>
+        <p>✅ WhatsApp + Email + IG → one inbox (3-5 hrs)</p>
+        <p>✅ Daily dashboard to WhatsApp/Email</p>
+        <p>📧 Delivered to <span class="highlight" id="deliveryChannel">Email</span> — check your inbox</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const form = document.getElementById('optinForm');
+      const successState = document.getElementById('successState');
+      const submitBtn = document.getElementById('submitBtn');
+      const popiaConsent = document.getElementById('popiaConsent');
+      const popiaConsentField = document.getElementById('popiaConsentField');
+      const segmentField = document.getElementById('segmentField');
+      const channelField = document.getElementById('channelField');
+      const contactLabel = document.getElementById('contactLabel');
+      const contactInput = document.getElementById('contact');
+      const deliveryChannel = document.getElementById('deliveryChannel');
+
+      document.getElementById('optinDateField').value = new Date().toISOString().split('T')[0];
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('source')) document.getElementById('sourceField').value = urlParams.get('source');
+
+      popiaConsent.addEventListener('change', () => {
+        popiaConsentField.value = popiaConsent.checked ? 'Yes' : 'No';
+      });
+
+      document.querySelectorAll('.segment-card').forEach(card => {
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.segment-card').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          const radio = card.querySelector('input[type="radio"]');
+          radio.checked = true;
+          segmentField.value = radio.value;
+        });
+      });
+
+      const emailBtn = document.getElementById('btn-email');
+      const whatsappBtn = document.getElementById('btn-whatsapp');
+      
+      function setContactMethod(method) {
+        channelField.value = method;
+        if (method === 'Email') {
+          emailBtn.classList.add('active');
+          whatsappBtn.classList.remove('active');
+          contactLabel.textContent = 'Email Address';
+          contactInput.type = 'email';
+          contactInput.placeholder = 'sarah@business.co.za';
+          contactInput.setAttribute('autocomplete', 'email');
+          deliveryChannel.textContent = 'Email';
+        } else {
+          whatsappBtn.classList.add('active');
+          emailBtn.classList.remove('active');
+          contactLabel.textContent = 'WhatsApp Number';
+          contactInput.type = 'tel';
+          contactInput.placeholder = '082 123 4567';
+          contactInput.setAttribute('autocomplete', 'tel');
+          deliveryChannel.textContent = 'WhatsApp';
+        }
+      }
+      
+      emailBtn.addEventListener('click', () => setContactMethod('Email'));
+      whatsappBtn.addEventListener('click', () => setContactMethod('WhatsApp'));
+
+      function showError(wrapperId, errorId) {
+        document.getElementById(wrapperId).classList.add('error');
+        document.getElementById(errorId).classList.add('visible');
+      }
+      function clearError(wrapperId, errorId) {
+        document.getElementById(wrapperId).classList.remove('error');
+        document.getElementById(errorId).classList.remove('visible');
+      }
+      function validateField(input, wrapperId, errorId) {
+        if (input.required && !input.value.trim()) { showError(wrapperId, errorId); return false; }
+        if (input.type === 'email' && input.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value)) { showError(wrapperId, errorId); return false; }
+        if (input.type === 'tel' && input.value && !/^[\d\s\-\+\(\)]{10,}$/.test(input.value)) { showError(wrapperId, errorId); return false; }
+        clearError(wrapperId, errorId); return true;
+      }
+
+      ['name', 'contact'].forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('blur', () => validateField(el, `${id}Wrapper`, `${id}Error`));
+        el.addEventListener('input', () => { if (document.getElementById(`${id}Wrapper`).classList.contains('error')) validateField(el, `${id}Wrapper`, `${id}Error`); });
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        let valid = true;
+        if (!validateField(document.getElementById('name'), 'nameWrapper', 'nameError')) valid = false;
+        if (!validateField(contactInput, 'contactWrapper', 'contactError')) valid = false;
+        if (!popiaConsent.checked) { valid = false; }
+
+        if (!valid) return;
+
+        submitBtn.classList.add('loading');
+        submitBtn.disabled = true;
+
+        const formData = new FormData(form);
+        
+        try {
+          const response = await fetch('/', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            body: formData
+          });
+          
+          if (response.ok) {
+            form.style.display = 'none';
+            successState.classList.add('visible');
+          } else {
+            throw new Error('Submission failed');
+          }
+        } catch (err) {
+          console.error(err);
+          submitBtn.classList.remove('loading');
+          submitBtn.disabled = false;
+          alert('Something went wrong. Please try again or email hello@agentcy.co.za');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

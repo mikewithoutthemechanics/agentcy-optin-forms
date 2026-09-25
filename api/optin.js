@@ -108,11 +108,23 @@ module.exports = async function handler(req, res) {
   }
 
   const name = trimmed(body.name, 120);
-  const contact = trimmed(body.contact || body.email, 200);
+  // The frictionless forms post one `contact` field that may hold either a
+  // phone number or an email, so which field it came from decides how
+  // strictly it can be validated.
+  const fromContactField = Boolean(trimmed(body.contact, 200));
+  const contact = trimmed(fromContactField ? body.contact : body.email, 200);
 
   if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
   if (!contact) return res.status(400).json({ success: false, message: 'Contact is required' });
-  if (contact.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+
+  const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const PHONE = /^[\d\s\-+()]{10,}$/;
+
+  if (fromContactField) {
+    if (!EMAIL.test(contact) && !PHONE.test(contact)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email or phone number' });
+    }
+  } else if (!EMAIL.test(contact)) {
     return res.status(400).json({ success: false, message: 'That email address looks invalid' });
   }
 

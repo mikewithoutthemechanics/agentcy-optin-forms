@@ -474,13 +474,11 @@
         submitBtn.classList.add('loading');
         submitBtn.disabled = true;
 
-        const formData = new FormData(form);
-        
         try {
-          const response = await fetch('/', {
+          const response = await fetch('/api/optin', {
             method: 'POST',
-            headers: { 'Accept': 'application/json' },
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))
           });
           
           if (response.ok) {

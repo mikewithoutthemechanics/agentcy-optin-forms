@@ -267,33 +267,47 @@
         popiaConsentField.value = popiaConsent.checked ? 'Yes' : 'No';
       });
 
+      // Field ids do not all follow the `<id>Wrapper` / `<id>Error` pattern,
+      // so map them explicitly rather than deriving the ids from the name.
+      const FIELDS = [
+        { id: 'name',              wrapper: 'nameWrapper',    error: 'nameError' },
+        { id: 'business',          wrapper: 'businessWrapper', error: 'businessError' },
+        { id: 'email',             wrapper: 'emailWrapper',   error: 'emailError' },
+        { id: 'area',              wrapper: 'areaWrapper',    error: 'areaError' },
+        { id: 'preferred_channel', wrapper: 'channelWrapper', error: 'channelError' },
+        { id: 'pain_point',        wrapper: 'painWrapper',    error: 'painError' },
+      ];
+      const REQUIRED_ON_SUBMIT = ['name', 'business', 'email', 'preferred_channel', 'pain_point'];
+
       function showError(wrapperId, errorId) {
-        document.getElementById(wrapperId).classList.add('error');
-        document.getElementById(errorId).classList.add('visible');
+        document.getElementById(wrapperId)?.classList.add('error');
+        document.getElementById(errorId)?.classList.add('visible');
       }
       function clearError(wrapperId, errorId) {
-        document.getElementById(wrapperId).classList.remove('error');
-        document.getElementById(errorId).classList.remove('visible');
+        document.getElementById(wrapperId)?.classList.remove('error');
+        document.getElementById(errorId)?.classList.remove('visible');
       }
       function validateField(input, wrapperId, errorId) {
         if (input.required && !input.value.trim()) { showError(wrapperId, errorId); return false; }
         clearError(wrapperId, errorId); return true;
       }
 
-      ['name', 'business', 'email', 'preferred_channel', 'pain_point'].forEach(id => {
+      FIELDS.forEach(({ id, wrapper, error }) => {
         const el = document.getElementById(id);
-        el.addEventListener('blur', () => validateField(el, `${id}Wrapper`, `${id}Error`));
-        el.addEventListener('input', () => { if (document.getElementById(`${id}Wrapper`).classList.contains('error')) validateField(el, `${id}Wrapper`, `${id}Error`); });
+        if (!el) return;
+        el.addEventListener('blur', () => validateField(el, wrapper, error));
+        el.addEventListener('input', () => {
+          if (document.getElementById(wrapper)?.classList.contains('error')) validateField(el, wrapper, error);
+        });
       });
 
-          // Netlify Forms AJAX submission for better UX
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       
       let valid = true;
-      ['name', 'business', 'email', 'preferred_channel', 'pain_point'].forEach(id => {
+      FIELDS.filter(f => REQUIRED_ON_SUBMIT.includes(f.id)).forEach(({ id, wrapper, error }) => {
         const el = document.getElementById(id);
-        if (!validateField(el, `${id}Wrapper`, `${id}Error`)) valid = false;
+        if (!validateField(el, wrapper, error)) valid = false;
       });
       if (!popiaConsent.checked) { valid = false; }
       if (!valid) return;

@@ -434,12 +434,12 @@
 
       // Validation
       function showError(wrapperId, errorId) {
-        document.getElementById(wrapperId).classList.add('error');
-        document.getElementById(errorId).classList.add('visible');
+        document.getElementById(wrapperId)?.classList.add('error');
+        document.getElementById(errorId)?.classList.add('visible');
       }
       function clearError(wrapperId, errorId) {
-        document.getElementById(wrapperId).classList.remove('error');
-        document.getElementById(errorId).classList.remove('visible');
+        document.getElementById(wrapperId)?.classList.remove('error');
+        document.getElementById(errorId)?.classList.remove('visible');
       }
       function validateField(input, wrapperId, errorId) {
         if (input.required && !input.value.trim()) {

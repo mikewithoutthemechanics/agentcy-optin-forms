@@ -95,11 +95,6 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ success: false, message: 'Method not allowed' });
   }
 
-  if (!TOKEN) {
-    console.error('[optin] AIRTABLE_API_KEY is not set.');
-    return res.status(500).json({ success: false, message: 'Server not configured' });
-  }
-
   let body;
   try {
     body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
@@ -127,6 +122,11 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    if (!TOKEN) {
+      console.error('[optin] AIRTABLE_API_KEY is not set.');
+      return res.status(500).json({ success: false, message: 'Server not configured' });
+    }
+
     const allowed = await allowedFields();
     const fields = buildFields(body, allowed);
 

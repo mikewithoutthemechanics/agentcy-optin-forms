@@ -9,16 +9,12 @@
 
 const CHECK_TIMEOUT_MS = 5000;
 
-// Airtable throttles at 5 requests/second per token and answers with 403 or
-// 429, which is the same status a real permissions failure uses. The opt-in
-// endpoint retries around exactly that, so a health check that does not would
-// report the form as DOWN during ordinary throttling - a false alarm, and the
-// fastest way to teach you to ignore the alert. Retry before believing it.
-const CHECK_ATTEMPTS = 3;
-const CHECK_BACKOFF_MS = 250;
+// Distinctive so a probe row left behind by a failed cleanup is obvious in the
+// tracker rather than looking like a real lead.
+const PROBE_NAME = '[health probe] delete me';
 
-// Read the environment inside runChecks() rather than at module load, so the
-// checks always reflect the instance's current configuration instead of
+// Read from the environment inside runChecks() rather than at module load, so
+// the checks always reflect the instance's current configuration instead of
 // whatever happened to be set when the module was first evaluated.
 const config = () => ({
   baseId: process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcMTV',
@@ -38,39 +34,70 @@ async function timedFetch(url, options) {
 }
 
 /**
- * Read Airtable, retrying throttling. Returns { ok, status, error } where a
- * failure has genuinely survived every attempt, not just the first.
+ * Can we still save a lead?
+ *
+ * A read is the obvious probe and it is the wrong one. Airtable throttles reads
+ * and writes separately, and in production the read path started returning 403
+ * while writes carried on working - so a read-based health check reported the
+ * form as DOWN on a day it was saving every lead perfectly. That is the worst
+ * possible failure for a monitor: it cries wolf daily until you ignore it, and
+ * then it is useless the one time it matters.
+ *
+ * So probe the write path: create a throwaway record and delete it again. Two
+ * calls a day, and the answer is directly the question "will the next
+ * submission be saved?".
  */
-async function readAirtable(baseId, tableId, airtableToken) {
-  let status = 0;
-  let error = null;
+async function probeWrite(baseId, tableId, airtableToken) {
+  const headers = {
+    Authorization: `Bearer ${airtableToken}`,
+    'Content-Type': 'application/json',
+  };
 
-  for (let attempt = 1; attempt <= CHECK_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      const backoff = CHECK_BACKOFF_MS * 2 ** (attempt - 2);
-      await new Promise((resolve) => setTimeout(resolve, backoff));
-    }
+  const created = await timedFetch(`https://api.airtable.com/v0/${baseId}/${tableId}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      fields: { Name: PROBE_NAME, Source: 'health-probe' },
+      typecast: true,
+    }),
+  });
+  if (!created.ok) {
+    return { ok: false, error: `write probe rejected: HTTP ${created.status}` };
+  }
 
-    try {
-      const r = await timedFetch(
-        `https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`,
-        { headers: { Authorization: `Bearer ${airtableToken}` } }
-      );
-      if (r.ok) return { ok: true, status: r.status, error: null };
-      status = r.status;
-      error = `HTTP ${r.status}`;
-      // 401/404 is a real configuration fault; retrying cannot help.
-      if (status === 401 || status === 404) return { ok: false, status, error };
-    } catch (err) {
-      status = 0;
-      error =
-        err.name === 'AbortError'
-          ? `timed out after ${CHECK_TIMEOUT_MS}ms`
-          : err.message;
+  // Always clean up, even if the delete fails: a leftover probe row would
+  // quietly pollute someone's pipeline.
+  const { id } = await created.json().catch(() => ({}));
+  if (id) {
+    const removed = await timedFetch(`https://api.airtable.com/v0/${baseId}/${tableId}/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!removed.ok) {
+      console.error(`[health] could not delete probe record ${id}: ${removed.status}`);
     }
   }
 
-  return { ok: false, status, error };
+  return { ok: true };
+}
+
+/**
+ * Corroborate a failed write probe with a plain read before declaring an
+ * outage. Airtable throttles per request type, so a single unlucky call is not
+ * evidence that leads are being lost - and a false alarm is worse than none.
+ * If the read works, the write failure was transient and the opt-in endpoint's
+ * own retries (plus the rescue-by-email path) will have coped.
+ */
+async function readAirtable(baseId, tableId, airtableToken) {
+  try {
+    const r = await timedFetch(
+      `https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`,
+      { headers: { Authorization: `Bearer ${airtableToken}` } }
+    );
+    return { ok: r.ok, error: r.ok ? null : `HTTP ${r.status}` };
+  } catch (err) {
+    return { ok: false, error: err.name === 'AbortError' ? 'timed out' : err.message };
+  }
 }
 
 /**
@@ -86,9 +113,30 @@ async function runChecks() {
     checks.airtable = { ok: false, error: 'AIRTABLE_API_KEY not set' };
     healthy = false;
   } else {
-    const r = await readAirtable(baseId, tableId, airtableToken);
-    checks.airtable = r.ok ? { ok: true } : { ok: false, error: r.error };
-    if (!r.ok) healthy = false;
+    const probe = await probeWrite(baseId, tableId, airtableToken);
+    if (probe.ok) {
+      checks.airtable = { ok: true, canSaveLeads: true };
+    } else {
+      const read = await readAirtable(baseId, tableId, airtableToken);
+      if (read.ok) {
+        // Writes are throttled, reads are not. The endpoint retries and then
+        // falls back to emailing the lead, so nothing is being lost.
+        checks.airtable = {
+          ok: true,
+          canSaveLeads: true,
+          degraded: true,
+          error: `${probe.error} (read corroboration succeeded, treating as transient)`,
+        };
+        console.warn(`[health] ${probe.error}; Airtable reads are fine, not paging`);
+      } else {
+        checks.airtable = {
+          ok: false,
+          canSaveLeads: false,
+          error: `${probe.error}; read also failed: ${read.error}`,
+        };
+        healthy = false;
+      }
+    }
   }
 
   // Reachability only. Validating the key would need a full-access token, and

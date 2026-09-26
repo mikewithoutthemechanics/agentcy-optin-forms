@@ -109,9 +109,18 @@ node --test tests/*.test.js    # 74 tests, no network needed
 
 ## Health check
 
-`GET /api/health` returns 200 or 503 and pings Airtable with a real read, so a revoked
-token or an outage shows up without waiting for a failed signup. Point an uptime monitor
-or Vercel cron at it.
+`GET /api/health` returns 200 or 503, and answers the only question that matters: **can
+the next submission be saved?** It writes a throwaway record and deletes it again, rather
+than reading. A read is the obvious probe and it is the wrong one — Airtable throttles
+reads and writes separately, and in production reads started returning 403 while every
+write carried on working. A read-based check called the form DOWN on a day it was saving
+every lead perfectly.
+
+If the write probe fails, a plain read corroborates before anyone is paged: if reads work,
+the failure was transient, and the opt-in endpoint's own retries plus the rescue-by-email
+path will have coped. Two calls a day.
+
+Point an uptime monitor or the cron at it.
 
 ## Rate limiting
 

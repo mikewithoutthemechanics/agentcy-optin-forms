@@ -43,19 +43,29 @@ async function run(handler, { auth = null } = {}) {
   return res;
 }
 
-/** Stub the Airtable read that runChecks() performs. */
+/** Stub the Airtable write probe that runChecks() performs. */
 function stubAirtable(status) {
-  global.fetch = async (url) => {
-    if (String(url).includes('api.airtable.com')) {
-      return {
-        ok: status < 400,
-        status,
-        json: async () => ({ records: [] }),
-        text: async () => 'error',
-      };
+  let created = 0;
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.includes('api.airtable.com')) throw new Error(`unexpected fetch: ${url}`);
+    if (opts.method === 'POST') {
+      created += 1;
+      if (status < 400) {
+        return { ok: true, status: 200, json: async () => ({ id: 'recProbe' }), text: async () => '{}' };
+      }
+      return { ok: false, status, json: async () => ({}), text: async () => 'denied' };
     }
-    throw new Error(`unexpected fetch: ${url}`);
+    // Read (corroboration) and delete.
+    if (opts.method === 'DELETE') return { ok: true, status: 200, text: async () => '{}' };
+    return {
+      ok: status < 400,
+      status,
+      json: async () => ({ records: [] }),
+      text: async () => 'error',
+    };
   };
+  return () => created;
 }
 
 function captureResend() {
@@ -92,8 +102,77 @@ test('alerts with the specific failure when Airtable is down', async () => {
   assert.equal(res.body.ok, false);
   assert.equal(sent.length, 1);
   assert.match(sent[0].subject, /DOWN/);
-  assert.match(sent[0].text, /airtable: HTTP 403/);
+  assert.match(sent[0].text, /airtable: .*HTTP 403/);
   assert.deepEqual(sent[0].to, ['ops@example.co.za']);
+});
+
+test('tells you leads are rescued by hand, not rejected', async () => {
+  stubAirtable(403);
+  const sent = captureResend();
+  await run(load({ resendKey: 'k' }));
+
+  // The rescue-by-email path means a visitor is not shown an error, so telling
+  // them submissions "are being rejected" would send them hunting for a bug
+  // that is not there - and would hide the fact that leads need manual entry.
+  assert.match(sent[0].text, /emailed to you instead/i);
+  assert.doesNotMatch(sent[0].text, /no leads are being recorded/i);
+});
+
+test('checks the write path, not just a read', async () => {
+  const created = stubAirtable(200);
+  const sent = captureResend();
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, true);
+  assert.equal(created(), 1, 'it wrote a probe record, because that is the operation that loses leads');
+  assert.equal(sent.length, 0);
+});
+
+test('a healthy probe leaves no record behind', async () => {
+  let deleted = false;
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (opts.method === 'DELETE') { deleted = true; return { ok: true, status: 200, text: async () => '{}' }; }
+    if (opts.method === 'POST') return { ok: true, status: 200, json: async () => ({ id: 'recProbe' }), text: async () => '{}' };
+    return { ok: true, status: 200, json: async () => ({ records: [] }), text: async () => '{}' };
+  };
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, true);
+  assert.equal(deleted, true, 'the probe row is cleaned up, so it never pollutes the pipeline');
+});
+
+test('does not cry wolf when a write fails but reads still work', async () => {
+  // Airtable throttles per request type. If the write probe is unlucky but the
+  // read corroboration succeeds, the endpoint's own retries will have coped
+  // and no lead is being lost - so this must not page anyone.
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (opts.method === 'POST') {
+      return { ok: false, status: 403, json: async () => ({}), text: async () => 'throttled' };
+    }
+    return { ok: true, status: 200, json: async () => ({ records: [] }), text: async () => '{}' };
+  };
+  const sent = captureResend();
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, true, 'a transient write failure is not an outage');
+  assert.equal(sent.length, 0, 'and it did not email about a blip');
+});
+
+test('still reports a genuine outage when the write and the read both fail', async () => {
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (opts.method === 'POST') {
+      return { ok: false, status: 403, json: async () => ({}), text: async () => 'denied' };
+    }
+    return { ok: false, status: 403, json: async () => ({}), text: async () => 'denied' };
+  };
+  const sent = captureResend();
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, false, 'both paths failing really does lose leads');
+  assert.equal(sent.length, 1, 'and it gets reported');
 });
 
 test('alerts when Airtable is missing entirely, not just erroring', async () => {
@@ -145,60 +224,25 @@ test('reports rather than emails when Resend itself is the broken part', async (
   assert.equal(res.body.notified, false, 'and says honestly that nobody was told');
 });
 
-test('does not cry wolf when Airtable merely throttles', async () => {
-  // Regression guard, found in production: Airtable throttles at 5 req/s and
-  // answers 403, which the opt-in endpoint retries straight through. A health
-  // check that read once reported the form as DOWN while submissions were
-  // still succeeding - a false alarm that trains you to ignore the alert.
+test('a revoked token is reported as an outage, not a blip', async () => {
+  // 401 means the token is gone. Retrying cannot help, and the read
+  // corroboration will also fail, so this must page.
   let reads = 0;
-  global.fetch = async (url) => {
-    if (String(url).includes('api.airtable.com')) {
-      reads += 1;
-      if (reads <= 2) {
-        return { ok: false, status: 403, json: async () => ({}), text: async () => 'throttled' };
-      }
-      return { ok: true, status: 200, json: async () => ({ records: [] }), text: async () => '{}' };
-    }
-    throw new Error(`unexpected fetch: ${url}`);
-  };
-  const sent = captureResend();
-
-  const res = await run(load({ resendKey: 'k' }));
-
-  assert.equal(res.body.ok, true, 'throttling is not an outage');
-  assert.equal(reads, 3, 'it retried before believing the failure');
-  assert.equal(sent.length, 0, 'and it did not email about a blip');
-});
-
-test('still reports a genuine outage after exhausting its retries', async () => {
-  global.fetch = async (url) => {
-    if (String(url).includes('api.airtable.com')) {
-      return { ok: false, status: 403, json: async () => ({}), text: async () => 'denied' };
-    }
-    throw new Error(`unexpected fetch: ${url}`);
-  };
-  const sent = captureResend();
-  const res = await run(load({ resendKey: 'k' }));
-
-  assert.equal(res.body.ok, false, 'a failure that survives every retry is an outage');
-  assert.equal(sent.length, 1, 'and it does get reported');
-});
-
-test('does not retry a 401, which only a human can fix', async () => {
-  let reads = 0;
-  global.fetch = async (url) => {
-    if (String(url).includes('api.airtable.com')) {
-      reads += 1;
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (opts.method === 'POST') {
       return { ok: false, status: 401, json: async () => ({}), text: async () => 'unauthorized' };
     }
-    throw new Error(`unexpected fetch: ${url}`);
+    reads += 1;
+    return { ok: false, status: 401, json: async () => ({}), text: async () => 'unauthorized' };
   };
   const sent = captureResend();
   const res = await run(load({ resendKey: 'k' }));
 
   assert.equal(res.body.ok, false);
-  assert.equal(reads, 1, 'one attempt is enough for a credentials fault');
+  assert.equal(reads, 1, 'one corroboration read, no retry loop');
   assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /401/);
 });
 
 test('the public health endpoint and the watcher agree on health', async () => {

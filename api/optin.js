@@ -21,8 +21,34 @@ const MAGNETS = {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[\d\s\-+()]{10,}$/;
+// linkedin.com/in/someone, or a bare handle the visitor typed.
+const LINKEDIN_RE = /^(https?:\/\/)?(www\.)?linkedin\.com\/(in|pub)\/[A-Za-z0-9_-]+\/?$/i;
+const HANDLE_RE = /^[A-Za-z0-9._-]{3,}$/;
+
+const SCHEMA_TTL_MS = Number(process.env.AIRTABLE_SCHEMA_TTL_MS || 10 * 60 * 1000);
+const RESEND_TIMEOUT_MS = Number(process.env.RESEND_TIMEOUT_MS || 5000);
+// A resubmission inside this window is treated as the same person, not a
+// new lead. The rate limiter allows 5 per 10 min, so without this one
+// person could create 5 rows and skew every pipeline KPI.
+const DEDUPE_WINDOW_DAYS = Number(process.env.DEDUPE_WINDOW_DAYS || 30);
 
 let cachedFields = null;
+let cachedAt = 0;
+
+/**
+ * Classify what the visitor actually gave us. The forms use one `contact`
+ * field for email, phone or LinkedIn depending on the toggle, and the long
+ * forms use a dedicated `email` field.
+ */
+function classifyContact(value) {
+  const v = trimmed(value, 200);
+  if (!v) return { kind: 'missing' };
+  if (EMAIL_RE.test(v)) return { kind: 'email', value: v };
+  if (PHONE_RE.test(v)) return { kind: 'phone', value: v };
+  if (LINKEDIN_RE.test(v)) return { kind: 'linkedin', value: v };
+  if (HANDLE_RE.test(v)) return { kind: 'linkedin', value: v, assumed: true };
+  return { kind: 'invalid' };
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -35,11 +61,12 @@ function trimmed(value, max) {
 
 /**
  * The Airtable table is edited by hand, so its columns drift from this file.
- * Read the live schema once per cold start and only submit columns that
- * actually exist, rather than 422-ing every lead over a renamed field.
+ * Read the live schema and only submit columns that actually exist, rather
+ * than 422-ing every lead over a renamed field. Cached with a TTL so a
+ * rename is picked up on a warm instance instead of only after a recycle.
  */
 async function allowedFields() {
-  if (cachedFields) return cachedFields;
+  if (cachedFields && Date.now() - cachedAt < SCHEMA_TTL_MS) return cachedFields;
 
   const res = await fetch(
     `https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`,
@@ -52,13 +79,34 @@ async function allowedFields() {
   if (!table) throw new Error(`Airtable table ${TABLE_ID} not found in base ${BASE_ID}`);
 
   cachedFields = new Set(table.fields.map((f) => f.name));
+  cachedAt = Date.now();
   return cachedFields;
 }
 
-function buildFields(body, allowed) {
-  const contact = trimmed(body.contact || body.email, 200);
-  const isEmail = contact.includes('@');
+/**
+ * True when this contact already opted in inside the dedupe window. Airtable
+ * has no unique-constraint equivalent, so this is a filtered read.
+ */
+async function findRecentDuplicate(contact) {
+  if (!contact?.value || contact.kind === 'invalid') return null;
 
+  const column = { email: 'Email', phone: 'Phone', linkedin: 'LinkedIn' }[contact.kind];
+  if (!column) return null;
+
+  const formula = `AND({${column}} = "${contact.value.replace(/"/g, '\\"')}", IS_AFTER({Opt-In Date}, LAST_N_DAYS(-${DEDUPE_WINDOW_DAYS})))`;
+  const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  if (!res.ok) {
+    // Never block a real lead because the duplicate check is unavailable.
+    console.error(`[optin] duplicate check failed (${res.status}); continuing`);
+    return null;
+  }
+  const { records } = await res.json();
+  return records.length ? records[0] : null;
+}
+
+function buildFields(body, allowed, contact) {
   const fields = {
     Name: trimmed(body.name, 120),
     Business: trimmed(body.business, 160),
@@ -67,8 +115,11 @@ function buildFields(body, allowed) {
     'Preferred Channel': trimmed(body.preferred_channel, 40),
     'Pain Point': trimmed(body.pain_point, 2000),
     'Current Tools': trimmed(body.current_tools, 2000),
-    Email: isEmail ? contact : '',
-    Phone: isEmail ? '' : contact,
+    // Routed by classification, not by "contains @" - otherwise a LinkedIn
+    // URL lands in the Phone column.
+    Email: contact.kind === 'email' ? contact.value : '',
+    Phone: contact.kind === 'phone' ? contact.value : '',
+    LinkedIn: contact.kind === 'linkedin' ? contact.value : '',
     'POPIA Consent': trimmed(body.popia_consent, 10) || 'Yes',
     'Consent Basis': CONSENT_BASIS,
     Source: trimmed(body.source, 120) || 'website',
@@ -115,43 +166,59 @@ function magnetFor(segment) {
  * Airtable by this point, and failing the request would leave the visitor
  * thinking they had not signed up. The success panel always carries a
  * working download link, so the promise holds even when email does not.
+ *
+ * Bounded by an AbortController because this runs inside the request and
+ * Vercel kills the function at ~10s on Hobby - an unbounded Resend hang
+ * would leave the visitor on a spinner instead of a download link.
  */
 async function sendLeadMagnet({ to, name, magnet, downloadUrl }) {
   if (!RESEND_KEY || !to) return { sent: false, reason: !RESEND_KEY ? 'no-key' : 'no-email' };
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${RESEND_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM,
-      to: [to],
-      reply_to: RESEND_REPLY_TO,
-      subject: `Your free blueprint: ${magnet.title}`,
-      html: `
-        <div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:560px">
-          <h2 style="margin:0 0 16px">${magnet.title}</h2>
-          <p>Hi ${escapeHtml(name) || 'there'},</p>
-          <p>Thanks for requesting the Agentcy blueprint. Here it is:</p>
-          <p><a href="${downloadUrl}"
-                style="display:inline-block;background:#0891b2;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:600">
-             Download the PDF
-          </a></p>
-          <p style="font-size:13px;color:#71717a">
-            Prefer it on your phone? ${downloadUrl}
-          </p>
-          <hr style="border:0;border-top:1px solid #e4e4e7;margin:24px 0">
-          <p style="font-size:12px;color:#71717a">
-            Agentcy - Custom Automation for South African Businesses<br>
-            <a href="https://agentcy.co.za">agentcy.co.za</a> &middot;
-            <a href="mailto:hello@agentcy.co.za">hello@agentcy.co.za</a><br>
-            You received this because you asked us to. Reply STOP to opt out.
-          </p>
-        </div>`,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RESEND_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${RESEND_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [to],
+        reply_to: RESEND_REPLY_TO,
+        subject: `Your free blueprint: ${magnet.title}`,
+        html: `
+          <div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:560px">
+            <h2 style="margin:0 0 16px">${magnet.title}</h2>
+            <p>Hi ${escapeHtml(name) || 'there'},</p>
+            <p>Thanks for requesting the Agentcy blueprint. Here it is:</p>
+            <p><a href="${downloadUrl}"
+                  style="display:inline-block;background:#0891b2;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:600">
+               Download the PDF
+            </a></p>
+            <p style="font-size:13px;color:#71717a">
+              Prefer it on your phone? ${downloadUrl}
+            </p>
+            <hr style="border:0;border-top:1px solid #e4e4e7;margin:24px 0">
+            <p style="font-size:12px;color:#71717a">
+              Agentcy - Custom Automation for South African Businesses<br>
+              <a href="https://agentcy.co.za">agentcy.co.za</a> &middot;
+              <a href="mailto:hello@agentcy.co.za">hello@agentcy.co.za</a><br>
+              You received this because you asked us to. Reply STOP to opt out.
+            </p>
+          </div>`,
+      }),
+    });
+  } catch (err) {
+    console.error(`[optin] Resend call failed: ${err.name === 'AbortError' ? `timed out after ${RESEND_TIMEOUT_MS}ms` : err.message}`);
+    return { sent: false, reason: err.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const detail = await res.text();
@@ -170,6 +237,22 @@ function whatsappLink(name, magnet, downloadUrl) {
   const text =
     `Hi ${name || 'there'} - here's the ${magnet.title} you asked for: ${downloadUrl}`;
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
+}
+
+/**
+ * One structured line per outcome so conversions can be counted from Vercel
+ * Logs without adding an analytics dependency. Deliberately carries no name,
+ * email, phone or IP - those stay in Airtable where they belong under POPIA.
+ */
+function logSubmission({ event, segment, channel, contactKind, emailed }) {
+  console.log(JSON.stringify({
+    event: 'optin',
+    outcome: event,
+    segment: segment || null,
+    channel: channel || null,
+    contact_kind: contactKind || null,
+    emailed: emailed === undefined ? null : emailed,
+  }));
 }
 
 /**
@@ -256,23 +339,27 @@ module.exports = async function handler(req, res) {
   }
 
   const name = trimmed(body.name, 120);
-  // The frictionless forms post one `contact` field that may hold either a
-  // phone number or an email, so which field it came from decides how
-  // strictly it can be validated.
+  // The frictionless forms post one `contact` field that may hold an email,
+  // a phone number or a LinkedIn URL depending on the toggle; the long forms
+  // use a dedicated `email` field that must be an email.
   const fromContactField = Boolean(trimmed(body.contact, 200));
-  const contact = trimmed(fromContactField ? body.contact : body.email, 200);
+  const contact = classifyContact(fromContactField ? body.contact : body.email);
 
   if (!name) return res.status(400).json({ success: false, message: 'Name is required' });
-  if (!contact) return res.status(400).json({ success: false, message: 'Contact is required' });
+  if (contact.kind === 'missing') {
+    return res.status(400).json({ success: false, message: 'Contact is required' });
+  }
 
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const PHONE_RE = /^[\d\s\-+()]{10,}$/;
+  if (contact.kind === 'invalid') {
+    return res.status(400).json({
+      success: false,
+      message: fromContactField
+        ? 'Enter a valid email, phone number or LinkedIn profile'
+        : 'That email address looks invalid',
+    });
+  }
 
-  if (fromContactField) {
-    if (!EMAIL_RE.test(contact) && !PHONE_RE.test(contact)) {
-      return res.status(400).json({ success: false, message: 'Enter a valid email or phone number' });
-    }
-  } else if (!EMAIL_RE.test(contact)) {
+  if (!fromContactField && contact.kind !== 'email') {
     return res.status(400).json({ success: false, message: 'That email address looks invalid' });
   }
 
@@ -302,7 +389,32 @@ module.exports = async function handler(req, res) {
     }
 
     const allowed = await allowedFields();
-    const fields = buildFields(body, allowed);
+    const segment = trimmed(body.segment, 80);
+    const channel = trimmed(body.preferred_channel, 40) ||
+      ({ email: 'Email', phone: 'WhatsApp', linkedin: 'LinkedIn' }[contact.kind] || 'Email');
+
+    // Same person, same window: still show them the blueprint, but do not
+    // create a second pipeline row. Their first record stays the source of
+    // truth so call/qualified counts are not inflated.
+    const existing = await findRecentDuplicate(contact);
+    if (existing) {
+      const magnet = magnetFor(segment);
+      const base = `https://${req.headers.host}`;
+      const downloadUrl = magnet ? `${base}/${magnet.file}` : null;
+      logSubmission({ event: 'duplicate', segment, channel, contactKind: contact.kind });
+      return res.status(200).json({
+        success: true,
+        message: 'Opt-in recorded.',
+        duplicate: true,
+        channel,
+        magnetTitle: magnet ? magnet.title : null,
+        downloadUrl,
+        waLink: magnet ? whatsappLink(name, magnet, downloadUrl) : null,
+        emailed: false,
+      });
+    }
+
+    const fields = buildFields(body, allowed, contact);
 
     const airtable = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`, {
       method: 'POST',
@@ -323,18 +435,20 @@ module.exports = async function handler(req, res) {
 
     // The lead is captured at this point, so delivery is best-effort and
     // never turns a successful signup into an error.
-    const magnet = magnetFor(trimmed(body.segment, 80));
+    const magnet = magnetFor(segment);
     const base = `https://${req.headers.host}`;
     const downloadUrl = magnet ? `${base}/${magnet.file}` : null;
-    const emailTo = EMAIL_RE.test(contact) ? contact : fields.Email;
+    // Only an actual email address can receive the email; a phone or
+    // LinkedIn contact still gets the download link and the WhatsApp button.
+    const emailTo = contact.kind === 'email' ? contact.value : null;
 
     let emailed = { sent: false, reason: 'no-magnet' };
     if (magnet) {
       emailed = await sendLeadMagnet({ to: emailTo, name, magnet, downloadUrl });
     }
 
-    const channel = trimmed(body.preferred_channel, 40) || (EMAIL_RE.test(contact) ? 'Email' : 'WhatsApp');
     const waLink = magnet ? whatsappLink(name, magnet, downloadUrl) : null;
+    logSubmission({ event: 'new', segment, channel, contactKind: contact.kind, emailed: emailed.sent });
 
     return res.status(200).json({
       success: true,

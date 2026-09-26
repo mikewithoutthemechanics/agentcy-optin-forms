@@ -229,7 +229,7 @@
   <div class="form-wrapper" id="formWrapper">
     <header class="form-header">
       <span class="badge">KZN Trades & Local SMBs</span>
-      <h1>Stop Losing Quote Requests to Slow Follow-Up</h1>
+      <h1>Stop Losing Jobs to Slow Follow-Up</h1>
       <p class="subhead">Get the exact automation blueprint Punctual Plumbers uses to respond in minutes, not hours — and book more jobs while you sleep.</p>
     </header>
 
@@ -337,6 +337,7 @@
       <svg class="success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="16 8 12 12 8 10"/></svg>
       <h2>You're in! 🎉</h2>
       <p>Your blueprint is ready to download now — 3 automations you can build this week.</p>
+      <p id="successIntro"></p>
       <a class="download-btn" id="downloadBtn" href="#" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download the PDF
@@ -420,12 +421,11 @@
       });
 
       // Form submit
-        // Render whatever the API managed to deliver, so the panel never
-      // promises something the visitor cannot actually get.
-      function showSuccess(data) {
+        function showSuccess(data) {
         const downloadBtn = document.getElementById('downloadBtn');
         const emailNote = document.getElementById('emailNote');
         const waBtn = document.getElementById('waBtn');
+        const intro = document.getElementById('successIntro');
 
         if (data && data.downloadUrl) {
           downloadBtn.href = data.downloadUrl;
@@ -433,9 +433,19 @@
           downloadBtn.classList.add('hidden');
         }
 
-        emailNote.textContent = (data && data.emailed)
-          ? 'A copy is on its way to your inbox.'
-          : 'Download it now - it only takes a second.';
+        // Name what they actually got. The segment picker lets someone
+        // switch, so the panel must not imply it is the page's own magnet.
+        if (intro && data && data.magnetTitle) {
+          intro.innerHTML = 'Your <strong>' + data.magnetTitle + '</strong> blueprint is ready to download now.';
+        }
+
+        if (data && data.emailed) {
+          emailNote.textContent = 'A copy is on its way to your inbox.';
+        } else if (data && data.duplicate) {
+          emailNote.textContent = 'You already have this - here is the download again.';
+        } else {
+          emailNote.textContent = 'Download it now - it only takes a second.';
+        }
 
         if (data && data.waLink) {
           waBtn.href = data.waLink;
@@ -445,8 +455,7 @@
 
         form.style.display = 'none';
         successState.classList.add('visible');
-      }
-    form.addEventListener('submit', async (e) => {
+      }    form.addEventListener('submit', async (e) => {
         e.preventDefault();
         
         let valid = true;

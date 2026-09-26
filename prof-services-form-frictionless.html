@@ -478,12 +478,11 @@
         el.addEventListener('input', () => { if (document.getElementById(`${id}Wrapper`).classList.contains('error')) validateField(el, `${id}Wrapper`, `${id}Error`); });
       });
 
-      // Render whatever the API managed to deliver, so the panel never
-      // promises something the visitor cannot actually get.
       function showSuccess(data) {
         const downloadBtn = document.getElementById('downloadBtn');
         const emailNote = document.getElementById('emailNote');
         const waBtn = document.getElementById('waBtn');
+        const intro = document.getElementById('successIntro');
 
         if (data && data.downloadUrl) {
           downloadBtn.href = data.downloadUrl;
@@ -491,9 +490,19 @@
           downloadBtn.classList.add('hidden');
         }
 
-        emailNote.textContent = (data && data.emailed)
-          ? 'A copy is on its way to your inbox.'
-          : 'Download it now - it only takes a second.';
+        // Name what they actually got. The segment picker lets someone
+        // switch, so the panel must not imply it is the page's own magnet.
+        if (intro && data && data.magnetTitle) {
+          intro.innerHTML = 'Your <strong>' + data.magnetTitle + '</strong> blueprint is ready to download now.';
+        }
+
+        if (data && data.emailed) {
+          emailNote.textContent = 'A copy is on its way to your inbox.';
+        } else if (data && data.duplicate) {
+          emailNote.textContent = 'You already have this - here is the download again.';
+        } else {
+          emailNote.textContent = 'Download it now - it only takes a second.';
+        }
 
         if (data && data.waLink) {
           waBtn.href = data.waLink;
@@ -503,8 +512,7 @@
 
         form.style.display = 'none';
         successState.classList.add('visible');
-      }
-      form.addEventListener('submit', async (e) => {
+      }      form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
         let valid = true;

@@ -1,194 +1,162 @@
 # Agentcy 30-Day Outreach — Opt-In Forms & Tracker
 
-## What's Built
+Static opt-in forms for three segments, deployed on Vercel, writing leads to Airtable
+and emailing the lead magnet through Resend.
 
-| Asset | Path | Purpose |
-|-------|------|---------|
-| **Central CRM Tracker** | Airtable: `app0CK3JUNYEGcCMV` → `tblnhzmqneNswTvGd` | Single source of truth for all opt-ins, pipeline, follow-ups |
-| **Trades Form** | `trades-form.html` | KZN trades/local SMBs — "Stop Losing Quotes" lead magnet |
-| **Online SMB Form** | `online-smb-form.html` | National online SMBs — "Find 3 Automations" lead magnet |
-| **Prof Services Form** | `prof-services-form.html` | Professional services — "AI Readiness Checklist" lead magnet |
-| **Landing Page** | `index.html` | Hub linking to all 3 forms |
-| **Lead Magnets** | `lead-magnet-*.md` | Content delivered after opt-in (PDF/Notion) |
-| **n8n Workflow** | `n8n-workflow-agentcy-optin.json` | Receives form POSTs → writes to Airtable |
+**Live:** https://agentcy-optin-forms.vercel.app
+
+There is no backend to run. `api/optin.js` is a Vercel serverless function: it validates,
+writes one Airtable row, and sends the PDF. Nothing else needs to be hosted or scheduled.
 
 ---
 
-## Deploy Checklist
+## How a submission flows
 
-### 1. Import n8n Workflow
+```
+visitor fills form
+   -> POST /api/optin
+      -> validate (name, contact, POPIA consent)   400 on failure
+      -> honeypot check                            silent 200, nothing written
+      -> rate limit (5 / 10 min / IP)              429 + Retry-After
+      -> duplicate check (same contact, 30 days)   200, no second row
+      -> Airtable record                           502 on failure
+      -> Resend email (5s timeout, best effort)    never fails the request
+   -> success panel: download button + wa.me link
+```
+
+Delivery is best-effort by design. The Airtable write happens first, so an email failure
+logs and still returns 200 — a real lead is never told they had not signed up. The
+download button is always rendered, so the promise holds even with no mail provider.
+
+## Pages
+
+| File | Segment | In funnel |
+|---|---|---|
+| `index.html` | landing hub, links to the 3 below | yes |
+| `trades-form-frictionless.html` | KZN Trades / Local SMBs | yes |
+| `online-smb-form-frictionless.html` | National Online SMBs | yes |
+| `prof-services-form-frictionless.html` | Professional Services | yes |
+| `trades-form.html` | KZN Trades (long form) | no — direct URL only |
+| `online-smb-form.html` | National Online SMBs (long form) | no — direct URL only |
+| `prof-services-form.html` | Professional Services (long form) | no — direct URL only |
+
+Both variants of each form are live and working. The long forms are not linked from the
+landing page; they are kept for anyone who wants the higher-detail version. Delete them
+if you would rather maintain one form per segment.
+
+## Contact handling
+
+The frictionless forms collect one `contact` field that changes type with the toggle
+(email / phone / LinkedIn). The server classifies it rather than trusting the field:
+
+| Input | Stored in | Notes |
+|---|---|---|
+| `thabo@x.co.za` | `Email` | only these receive the email |
+| `+27837915429` | `Phone` | gets download link + WhatsApp button instead |
+| `linkedin.com/in/priyan` | `LinkedIn` | prof-services form only |
+
+`Email`, `Phone` and `LinkedIn` are Airtable columns. **The `LinkedIn` column must exist**
+or LinkedIn submissions are accepted but the URL is dropped (logged as a warning).
+
+## Environment variables
+
+Set in Vercel → Settings → Environment Variables. All three environments.
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `AIRTABLE_API_KEY` | yes | PAT with `data.records:write` + `schema.bases:read` on `app0CK3JUNYEGcCMV` |
+| `RESEND_API_KEY` | for email | send-only key scoped to the sending domain |
+| `RESEND_FROM` | for email | e.g. `Agentcy <optin@concierge.agentcy.co.za>` |
+| `RESEND_REPLY_TO` | recommended | a **monitored** inbox; defaults to `hello@agentcy.co.za` |
+| `WHATSAPP_NUMBER` | no | defaults to `+27837915429` |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | no | defaults `5` / `600000` |
+| `DEDUPE_WINDOW_DAYS` | no | defaults `30` |
+| `RESEND_TIMEOUT_MS` | no | defaults `5000` |
+| `AIRTABLE_SCHEMA_TTL_MS` | no | defaults `600000` |
+| `REDIS_URL` + `REDIS_TOKEN` | no | see Rate limiting |
+
+## Deploying
+
+Push to `master`; the GitHub integration deploys automatically.
+
 ```bash
-# In n8n UI: Workflows → Import → Select n8n-workflow-agentcy-optin.json
-# Then configure credentials:
-# - Airtable: "Agentcy Airtable" (Personal Access Token with data.records:write on app0CK3JUNYEGcCMV)
-# Activate workflow
+node --test tests/optin.test.js     # 17 tests, no network needed
 ```
 
-### 2. Verify Webhook Endpoints
-After activating, test each:
+## Health check
+
+`GET /api/health` returns 200 or 503 and pings Airtable with a real read, so a revoked
+token or an outage shows up without waiting for a failed signup. Point an uptime monitor
+or Vercel cron at it.
+
+## Rate limiting
+
+Per-IP sliding window, evaluated before the Airtable write so junk never reaches the
+tracker, and after validation so a human who mistypes their email is not locked out.
+
+The counter is an in-memory `Map`, and Vercel does not guarantee a warm instance — so it
+absorbs bursts and casual abuse but is **not** a hard guarantee against a determined
+attacker. Setting `REDIS_URL` and `REDIS_TOKEN` (Upstash free tier is ample) switches the
+same check to a shared counter with no code change.
+
+## Lead magnets
+
+`lead-magnet-*.pdf` are build artifacts generated from the `.md` sources:
+
 ```bash
-curl -X POST https://n8n.agentcy.co.za/webhook/agentcy-trades-optin \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test User","business":"Test Plumbing","segment":"KZN Trades/Local SMBs","area":"Durban","preferred_channel":"WhatsApp","pain_point":"Slow follow-up","current_tools":"WhatsApp, paper","popia_consent":"Yes","lead_magnet":"Trades: Stop Losing Quotes","source":"test","optin_date":"2026-09-13"}'
-```
-Should return `{"success":true,"message":"Opt-in recorded. Lead magnet incoming."}` and create a record in Airtable.
-
-### 3. Host Forms
-Options (pick one):
-- **Netlify/Vercel**: Drag `agentcy-optin-forms` folder → deploy (auto HTTPS, custom domain)
-- **Cloudflare Pages**: Connect Git repo → build command: none, output: `/`
-- **VPS (nginx)**: `cp -r agentcy-optin-forms/* /var/www/agentcy-optin/`
-
-Update form `fetch()` URLs if webhook domain changes.
-
-### 4. Configure Lead Magnet Delivery
-In n8n, add a **Send Email / WhatsApp** node after "Create Airtable Record":
-- **Email**: Use SendGrid/SMTP node with lead magnet PDF attached
-- **WhatsApp**: Use Twilio WhatsApp node with link to Notion/PDF
-- **Branch by segment** (use Switch node on `segment` field)
-
-### 5. Set Up Follow-Up Automation (Week 1)
-Create second n8n workflow: **Daily Follow-Up Check**
-- Cron: Every day 09:00 SAST
-- Airtable: List records where `Status = "New Opt-In"` AND `Touch Count < 3` AND `Next Follow-Up Date <= Today`
-- For each: Send personalized follow-up (email/WhatsApp/LinkedIn per `Preferred Channel`)
-- Update: `Touch Count += 1`, `Last Touch Date = Today`, `Next Follow-Up Date = Today + 2-4 days`
-
-### 6. NCC Registration & sa-dm Cleansing
-- Register as Direct Marketer with NCC (National Consumer Commission)
-- Set up monthly cron to cleanse Airtable against NCC opt-out registry using `sa-dm` tooling
-- Log: `cronjob_manage` skill has patterns for this
-
----
-
-## Airtable Tracker Fields Reference
-
-| Field | Type | Notes |
-|-------|------|-------|
-| Name | Single line text | Primary field |
-| Business | Single line text | |
-| Segment | Single select | KZN Trades / National Online / Prof Services |
-| Area | Single line text | |
-| Preferred Channel | Single select | WhatsApp, Email, LinkedIn, Phone, In-Person |
-| Pain Point | Long text | |
-| Current Tools | Long text | |
-| POPIA Consent | Single select | Yes/No |
-| Consent Basis | Single select | Form Opt-In, Partner Referral, Event Signup, Workshop Attendee, Lead Magnet Download |
-| Source | Single line text | UTM/campaign source |
-| Opt-In Date | Date | Auto-set on form submit |
-| Status | Single select | New Opt-In → Contacted → Call Booked → Call Completed → Qualified → Proposal Sent → Won/Lost/Paused |
-| Booked Call | Single select | Yes/No |
-| Call Date | DateTime | |
-| Attended | Single select | Yes/No |
-| Qualified | Single select | Yes/No |
-| Proposal Sent | Single select | Yes/No |
-| Proposal Date | Date | |
-| Outcome | Single select | Audit Started, Growth Retainer, Project Scoped, Not a Fit, Ghosted, Deferred |
-| Next Action | Long text | |
-| Next Follow-Up Date | Date | |
-| Touch Count | Number | Max 3 per 14 days |
-| Last Touch Date | Date | |
-| Lead Magnet | Single select | Trades/Online SMB/Prof Services |
-
----
-
-## Views to Create in Airtable
-
-1. **Pipeline Kanban** — Group by Status
-2. **Today's Follow-Ups** — Filter: `Next Follow-Up Date = Today` AND `Touch Count < 3`
-3. **By Segment** — Group by Segment
-4. **Weekly Review** — Filter: `Opt-In Date >= 7 days ago`, sort by Status
-5. **Consent Audit** — Filter: `POPIA Consent = "No"` (should be zero)
-
----
-
-## Daily KPI Dashboard (Airtable Interface or Notion)
-
-| KPI | Target | Source |
-|-----|--------|--------|
-| New Opt-Ins (24h) | 5-7/day | Count records where `Opt-In Date = Today` |
-| Booked Calls (24h) | 1-2/day | Count where `Booked Call = Yes` AND `Call Date = Today` |
-| Call Show Rate | >80% | `Attended = Yes` / `Booked Call = Yes` |
-| Qualified Rate | >50% | `Qualified = Yes` / `Call Completed = Yes` |
-| Proposals Sent (week) | 3-4/week | Count where `Proposal Date = This Week` |
-
----
-
-## Week 1 Launch Checklist
-
-- [ ] n8n workflow imported & activated
-- [ ] Forms hosted & HTTPS working
-- [ ] Lead magnet delivery tested (all 3 segments)
-- [ ] Follow-up automation workflow created
-- [ ] NCC registration submitted
-- [ ] sa-dm cleansing cron scheduled (monthly)
-- [ ] Airtable views created
-- [ ] Team added to Airtable base (Editor access)
-- [ ] Calendly link updated in all lead magnets (`https://calendly.com/agentcy/30min-strategy`)
-- [ ] Test end-to-end: form → Airtable → lead magnet delivery → follow-up trigger
-
----
-
-## File Structure
-
-```
-agentcy-optin-forms/
-├── index.html                    # Landing hub
-├── trades-form.html              # KZN Trades opt-in form
-├── online-smb-form.html          # National Online SMB opt-in form
-├── prof-services-form.html       # Professional Services opt-in form
-├── lead-magnet-trades.md         # Trades lead magnet content
-├── lead-magnet-online-smb.md     # Online SMB lead magnet content
-├── lead-magnet-prof-services.md  # Prof Services lead magnet content
-├── n8n-workflow-agentcy-optin.json  # n8n workflow (import this)
-└── README.md                     # This file
+python -m pip install markdown playwright && playwright install chromium
+python scripts/build_lead_magnets.py            # all three
+python scripts/build_lead_magnets.py trades     # just one
 ```
 
----
+Edit the markdown, re-run the script, commit both. The PDFs are served from the site root
+and are therefore ungated — anyone who guesses the URL can download them. The opt-in form
+buys contact details, not content protection. That is a deliberate choice; gate them behind
+the form only if you want the content itself to be the thing you are selling.
 
-## Customization Notes
+## Airtable tracker
 
-### Colors (CSS Variables)
-All forms use the same cool silverish neutral palette:
-```css
---bg: #0a0a0b;           /* Near black */
---bg-elevated: #141416;  /* Card background */
---fg: #f4f4f5;           /* Near white */
---muted: #71717a;        /* Zinc 500 */
---accent: #22d3ee;       /* Cyan 400 — primary CTA */
---accent-dim: #0891b2;   /* Cyan 600 — hover */
---border: #27272a;       /* Zinc 800 */
---card: #18181b;         /* Zinc 900 */
+Base `app0CK3JUNYEGcCMV`, table `tblnhzmqneNswTvGd` ("Agentcy Outreach Tracker").
+
+The function reads the live column list before writing and silently drops any field the
+table does not have, so renaming a column degrades one field instead of failing every
+lead. Watch the Vercel logs for `Airtable table is missing column(s)`.
+
+Pipeline columns (`Status`, `Touch Count`, `Next Follow-Up Date`, …) are set on create and
+are yours to work from. **The follow-up sequence is not implemented** — the `*-followup`
+JSON scenarios and `scripts/daily_followup.py` in this repo are blueprints for it, not
+running code. Nothing reads those columns yet.
+
+Views worth creating:
+
+1. **Pipeline Kanban** — group by `Status`
+2. **Today's Follow-Ups** — `Next Follow-Up Date` is today AND `Touch Count` < 3
+3. **By Segment** — group by `Segment`
+4. **Consent Audit** — `POPIA Consent` = "No" (should be zero; the API rejects these)
+
+## POPIA
+
+- Consent is enforced **server-side**; the client-side checkbox is convenience only.
+- An unconsented submission never reaches Airtable.
+- Duplicate suppression keeps one person to one record inside 30 days, so a follow-up
+  sequence cannot message the same lead three times.
+- The lead magnet email carries a `reply-to` at a monitored address and asks for STOP.
+  **There is no automatic suppression list** — handle STOP manually, or add the address
+  to Resend suppressions.
+- Register as a direct marketer with the NCC and run the monthly cleanse:
+
+```bash
+sudo cp ncc-cleanse.py /opt/agentcy/
+sudo cp agentcy-ncc-cleanse.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now agentcy-ncc-cleanse.timer
 ```
-**No warm tints. No glassmorphism. Sharp, high-contrast, accessible.**
 
-### Adding a 4th Segment
-1. Duplicate one form HTML → rename fields
-2. Add segment to Airtable `Segment` single select options
-3. Add lead magnet to `Lead Magnet` single select options
-4. Add webhook path in n8n (new Webhook node → connect to existing Map node)
-5. Update `index.html` with 4th card
+## Still to do
 
-### POPIA Compliance Checklist
-- [x] Explicit opt-in checkbox on every form (required)
-- [x] Clear consent language with STOP/withdrawal instructions
-- [x] Privacy Policy & Terms links
-- [x] Consent basis tracked in Airtable
-- [x] Separate unconsented master list (not in this base)
-- [ ] NCC registration complete
-- [ ] Monthly sa-dm cleansing cron active
-- [ ] Audit trail: every touch logged with date/channel/content
-
----
-
-## Support
-
-- **Forms not submitting?** Check browser Network tab → webhook URL → CORS/404/500
-- **Airtable not creating records?** Check n8n execution log → Airtable node error
-- **Lead magnets not delivering?** Check n8n Send Email/WhatsApp node logs
-- **Need to bulk import legacy leads?** Use Airtable CSV import → map fields → set `Consent Basis = "Partner Referral"` or similar
-
----
-
-*Built for Agentcy — Custom Automation for South African Businesses*  
-*hello@agentcy.co.za | agentcy.co.za*
+- [ ] **Rotate the Airtable PAT** — the one in use was shared in a chat and in shell history
+- [ ] Add the `LinkedIn` column to the tracker
+- [ ] Point a monitor at `/api/health`
+- [ ] Add `REDIS_URL` / `REDIS_TOKEN` for durable rate limiting
+- [ ] Serve from a `agentcy.co.za` subdomain rather than `*.vercel.app`
+- [ ] Implement the follow-up sequence
+- [ ] Decide whether to keep the three long forms

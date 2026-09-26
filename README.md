@@ -3,7 +3,11 @@
 Static opt-in forms for three segments, deployed on Vercel, writing leads to Airtable
 and emailing the lead magnet through Resend.
 
-**Live:** https://agentcy-optin-forms.vercel.app
+**Live:** https://optin.agentcy.co.za
+
+Canonical domain, wildcard TLS via Vercel. The `*.vercel.app` alias still resolves and
+still works, but links in emails, the WhatsApp deep link and the PDF download are built
+from the request host, so they follow whatever domain the visitor arrived on.
 
 There is no backend to run. `api/optin.js` is a Vercel serverless function: it validates,
 writes one Airtable row, and sends the PDF. Nothing else needs to be hosted or scheduled.

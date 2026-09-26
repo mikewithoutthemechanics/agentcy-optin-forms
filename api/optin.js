@@ -349,21 +349,63 @@ function logSubmission({ event, segment, channel, contactKind, emailed }) {
  */
 const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000);
 const MAX_PER_WINDOW = Number(process.env.RATE_LIMIT_MAX || 5);
+const MAX_TRACKED_IPS = Number(process.env.RATE_LIMIT_MAX_IPS || 10000);
+const SWEEP_EVERY = 256;
 const hits = new Map();
+let sinceSweep = 0;
 
+/**
+ * Identify the caller well enough to rate limit them.
+ *
+ * `x-forwarded-for` is client-influenced: a caller may send its own value and
+ * the proxy appends the real address, so the FIRST entry is whatever the caller
+ * claimed. Trusting it - as this used to - means anyone bypasses the limiter by
+ * sending a forged header, one fresh IP per submission. Prefer the header Vercel
+ * sets itself, then take the LAST forwarded entry, which the proxy controls.
+ */
 function clientIp(req) {
+  const vercel = req.headers['x-vercel-forwarded-for'];
+  if (typeof vercel === 'string' && vercel.trim()) return vercel.split(',')[0].trim();
+
   const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+  if (typeof fwd === 'string' && fwd) {
+    const chain = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
+  }
+
   return req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown';
+}
+
+/**
+ * Drop expired windows, but only sweep a slice of the map per call. Sweeping
+ * everything every time makes each request cost O(distinct IPs seen), which is
+ * a denial-of-service lever: an attacker who rotates source addresses makes
+ * every legitimate request slower, forever.
+ */
+function sweep(now) {
+  for (const [key, stamps] of hits) {
+    const live = stamps.filter((t) => now - t < WINDOW_MS);
+    if (live.length) hits.set(key, live);
+    else hits.delete(key);
+  }
+
+  // Still over cap after dropping expired entries: a flood is in progress.
+  // Forget the oldest half rather than growing without bound. Evicting is
+  // safe here - it can only let a flooder through, never lock out a real
+  // visitor whose entry is still live and recent.
+  if (hits.size > MAX_TRACKED_IPS) {
+    const excess = hits.size - MAX_TRACKED_IPS;
+    for (const key of [...hits.keys()].slice(0, excess)) hits.delete(key);
+    console.warn(`[optin] rate limiter over cap, evicted ${excess} entries`);
+  }
 }
 
 function localRateLimit(ip) {
   const now = Date.now();
 
-  for (const [key, stamps] of hits) {
-    const live = stamps.filter((t) => now - t < WINDOW_MS);
-    if (live.length) hits.set(key, live);
-    else hits.delete(key);
+  if (++sinceSweep >= SWEEP_EVERY || hits.size > MAX_TRACKED_IPS) {
+    sweep(now);
+    sinceSweep = 0;
   }
 
   const seen = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
@@ -389,7 +431,11 @@ async function checkRateLimit(ip) {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify([['INCR', key], ['EXPIRE', key, Math.ceil(WINDOW_MS / 1000) + 60]]),
     });
-    const count = Number(Array.isArray(res.json) ? 0 : 0) || (await res.json())?.[0]?.result || 0;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    // Upstash returns a JSON array of results, one per command.
+    const results = await res.json();
+    const count = Number(results?.[0]?.result || 0);
     if (count > MAX_PER_WINDOW) {
       const retryAfter = Math.ceil((WINDOW_MS - (Date.now() % WINDOW_MS)) / 1000);
       return { limited: true, retryAfter };

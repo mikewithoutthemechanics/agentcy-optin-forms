@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/health-watch",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/followup",
+      "schedule": "0 7 * * *"
     }
   ]
 }

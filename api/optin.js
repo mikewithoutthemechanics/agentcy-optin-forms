@@ -1,3 +1,4 @@
+const { airtableRequest, ATTEMPTS } = require('./_airtable.js');
 const BASE_ID = process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcCMV';
 const TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
 const TOKEN = process.env.AIRTABLE_API_KEY;
@@ -54,76 +55,16 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** ISO date `n` days from now, used to schedule the first follow-up touch. */
+function daysFromNow(n) {
+  return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+}
+
 function trimmed(value, max) {
   if (typeof value !== 'string') return '';
   return value.trim().slice(0, max);
 }
 
-const AIRTABLE_ATTEMPTS = Number(process.env.AIRTABLE_RETRY_ATTEMPTS || 3);
-const AIRTABLE_BACKOFF_MS = Number(process.env.AIRTABLE_RETRY_BACKOFF_MS || 250);
-const AIRTABLE_TIMEOUT_MS = Number(process.env.AIRTABLE_TIMEOUT_MS || 4000);
-
-/**
- * Airtable allows 5 requests/second per token and answers an overrun with
- * 403 or 429 - the *same* status it uses for a genuine permissions failure.
- * That ambiguity is why this retries 403 as well as 429: a throttled request
- * recovers, and a real auth failure simply fails again and falls through to
- * the identical error it would have produced without this wrapper.
- *
- * Without it, one burst of simultaneous submissions hits the limit, Airtable
- * 403s the write, and the visitor gets "could not save your opt-in" - a lead
- * lost to infrastructure, not to anything they did.
- *
- * 422 and 401/404 are never retried: they mean the payload or the
- * configuration is wrong, and only a human can fix either.
- */
-async function airtableFetch(url, init = {}) {
-  let status = 0;
-  let body = '';
-
-  for (let attempt = 1; attempt <= AIRTABLE_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      // Jitter, so a burst of simultaneous submissions does not re-collide
-      // in lockstep on the next attempt.
-      const backoff =
-        AIRTABLE_BACKOFF_MS * 2 ** (attempt - 2) * (0.5 + Math.random() / 2);
-      await new Promise((resolve) => setTimeout(resolve, backoff));
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AIRTABLE_TIMEOUT_MS);
-    let res;
-    try {
-      res = await fetch(url, { ...init, signal: controller.signal });
-    } catch (err) {
-      // Timeout or connection reset. Worth another attempt.
-      status = 0;
-      body = err.message;
-      continue;
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (res.ok) {
-      return { ok: true, status: res.status, body: await res.text().catch(() => '') };
-    }
-
-    status = res.status;
-    body = await res.text().catch(() => '');
-
-    if (res.status === 422 || res.status === 401 || res.status === 404) {
-      return { ok: false, status, body };
-    }
-
-    if (attempt < AIRTABLE_ATTEMPTS) {
-      console.warn(
-        `[optin] Airtable ${res.status}, retrying (attempt ${attempt}/${AIRTABLE_ATTEMPTS})`
-      );
-    }
-  }
-
-  return { ok: false, status, body };
-}
 
 /**
  * The Airtable table is edited by hand, so its columns drift from this file.
@@ -134,10 +75,7 @@ async function airtableFetch(url, init = {}) {
 async function allowedFields() {
   if (cachedFields && Date.now() - cachedAt < SCHEMA_TTL_MS) return cachedFields;
 
-  const { ok, status, body } = await airtableFetch(
-    `https://api.airtable.com/v0/meta/bases/${BASE_ID}/tables`,
-    { headers: { Authorization: `Bearer ${TOKEN}` } }
-  );
+  const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID}/tables`);
   if (!ok) throw new Error(`Airtable schema fetch failed: ${status} ${body}`);
 
   const { tables } = JSON.parse(body);
@@ -171,16 +109,15 @@ async function findRecentDuplicate(contact) {
   const formula =
     `AND({${column}} = "${contact.value.replace(/"/g, '\\"')}", ` +
     `IS_AFTER({Opt-In Date}, "${cutoff}"))`;
-  const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+  const path =
+    `${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
 
-  const { ok, status, body } = await airtableFetch(url, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-  });
+  const { ok, status, body } = await airtableRequest(path);
   if (!ok) {
     // Never block a real lead because the duplicate check is unavailable,
     // but make it loud: a silent failure here means duplicate rows.
     console.error(
-      `[optin] DUPLICATE CHECK FAILED (${status}) after ${AIRTABLE_ATTEMPTS} attempts - duplicates are not being prevented. ${body}`
+      `[optin] DUPLICATE CHECK FAILED (${status}) after ${ATTEMPTS} attempts - duplicates are not being prevented. ${body}`
     );
     return null;
   }
@@ -212,7 +149,11 @@ function buildFields(body, allowed, contact) {
     Qualified: 'No',
     'Proposal Sent': 'No',
     'Next Action': 'Send lead magnet + schedule follow-up',
-    'Next Follow-Up Date': today(),
+    // Two days, not today. The follow-up job's first touch is a "quick
+    // question" email - firing it the same afternoon somebody downloaded a
+    // blueprint is how a warm lead goes cold, and it stacks up to four emails
+    // inside a week.
+    'Next Follow-Up Date': daysFromNow(2),
     'Touch Count': 0,
     'Last Touch Date': today(),
     'Lead Magnet': trimmed(body.lead_magnet, 120),
@@ -544,20 +485,16 @@ module.exports = async function handler(req, res) {
 
     const fields = buildFields(body, allowed, contact);
 
-    const airtable = await airtableFetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`, {
+    const airtable = await airtableRequest(`${BASE_ID}/${TABLE_ID}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        'Content-Type': 'application/json',
-      },
       // typecast lets Airtable create single-select options on first use
       // instead of rejecting leads over a label mismatch.
-      body: JSON.stringify({ fields, typecast: true }),
+      body: { fields, typecast: true },
     });
 
     if (!airtable.ok) {
       console.error(
-        `[optin] Airtable rejected the record (${airtable.status}) after ${AIRTABLE_ATTEMPTS} attempts: ${airtable.body}`
+        `[optin] Airtable rejected the record (${airtable.status}) after ${ATTEMPTS} attempts: ${airtable.body}`
       );
       return res.status(502).json({ success: false, message: 'Could not save your opt-in just now. Please try again in a moment.' });
     }

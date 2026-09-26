@@ -145,6 +145,62 @@ test('reports rather than emails when Resend itself is the broken part', async (
   assert.equal(res.body.notified, false, 'and says honestly that nobody was told');
 });
 
+test('does not cry wolf when Airtable merely throttles', async () => {
+  // Regression guard, found in production: Airtable throttles at 5 req/s and
+  // answers 403, which the opt-in endpoint retries straight through. A health
+  // check that read once reported the form as DOWN while submissions were
+  // still succeeding - a false alarm that trains you to ignore the alert.
+  let reads = 0;
+  global.fetch = async (url) => {
+    if (String(url).includes('api.airtable.com')) {
+      reads += 1;
+      if (reads <= 2) {
+        return { ok: false, status: 403, json: async () => ({}), text: async () => 'throttled' };
+      }
+      return { ok: true, status: 200, json: async () => ({ records: [] }), text: async () => '{}' };
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const sent = captureResend();
+
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, true, 'throttling is not an outage');
+  assert.equal(reads, 3, 'it retried before believing the failure');
+  assert.equal(sent.length, 0, 'and it did not email about a blip');
+});
+
+test('still reports a genuine outage after exhausting its retries', async () => {
+  global.fetch = async (url) => {
+    if (String(url).includes('api.airtable.com')) {
+      return { ok: false, status: 403, json: async () => ({}), text: async () => 'denied' };
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const sent = captureResend();
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, false, 'a failure that survives every retry is an outage');
+  assert.equal(sent.length, 1, 'and it does get reported');
+});
+
+test('does not retry a 401, which only a human can fix', async () => {
+  let reads = 0;
+  global.fetch = async (url) => {
+    if (String(url).includes('api.airtable.com')) {
+      reads += 1;
+      return { ok: false, status: 401, json: async () => ({}), text: async () => 'unauthorized' };
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  const sent = captureResend();
+  const res = await run(load({ resendKey: 'k' }));
+
+  assert.equal(res.body.ok, false);
+  assert.equal(reads, 1, 'one attempt is enough for a credentials fault');
+  assert.equal(sent.length, 1);
+});
+
 test('the public health endpoint and the watcher agree on health', async () => {
   stubAirtable(200);
   const sent = captureResend();

@@ -9,6 +9,14 @@
 
 const CHECK_TIMEOUT_MS = 5000;
 
+// Airtable throttles at 5 requests/second per token and answers with 403 or
+// 429, which is the same status a real permissions failure uses. The opt-in
+// endpoint retries around exactly that, so a health check that does not would
+// report the form as DOWN during ordinary throttling - a false alarm, and the
+// fastest way to teach you to ignore the alert. Retry before believing it.
+const CHECK_ATTEMPTS = 3;
+const CHECK_BACKOFF_MS = 250;
+
 // Read the environment inside runChecks() rather than at module load, so the
 // checks always reflect the instance's current configuration instead of
 // whatever happened to be set when the module was first evaluated.
@@ -30,6 +38,42 @@ async function timedFetch(url, options) {
 }
 
 /**
+ * Read Airtable, retrying throttling. Returns { ok, status, error } where a
+ * failure has genuinely survived every attempt, not just the first.
+ */
+async function readAirtable(baseId, tableId, airtableToken) {
+  let status = 0;
+  let error = null;
+
+  for (let attempt = 1; attempt <= CHECK_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      const backoff = CHECK_BACKOFF_MS * 2 ** (attempt - 2);
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+    }
+
+    try {
+      const r = await timedFetch(
+        `https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`,
+        { headers: { Authorization: `Bearer ${airtableToken}` } }
+      );
+      if (r.ok) return { ok: true, status: r.status, error: null };
+      status = r.status;
+      error = `HTTP ${r.status}`;
+      // 401/404 is a real configuration fault; retrying cannot help.
+      if (status === 401 || status === 404) return { ok: false, status, error };
+    } catch (err) {
+      status = 0;
+      error =
+        err.name === 'AbortError'
+          ? `timed out after ${CHECK_TIMEOUT_MS}ms`
+          : err.message;
+    }
+  }
+
+  return { ok: false, status, error };
+}
+
+/**
  * Report configuration state without echoing any secret, and read Airtable for
  * real so a revoked token surfaces here rather than as a failed signup.
  */
@@ -42,22 +86,9 @@ async function runChecks() {
     checks.airtable = { ok: false, error: 'AIRTABLE_API_KEY not set' };
     healthy = false;
   } else {
-    try {
-      const r = await timedFetch(
-        `https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=1`,
-        { headers: { Authorization: `Bearer ${airtableToken}` } }
-      );
-      checks.airtable = r.ok
-        ? { ok: true }
-        : { ok: false, error: `HTTP ${r.status}` };
-      if (!r.ok) healthy = false;
-    } catch (err) {
-      checks.airtable = {
-        ok: false,
-        error: err.name === 'AbortError' ? `timed out after ${CHECK_TIMEOUT_MS}ms` : err.message,
-      };
-      healthy = false;
-    }
+    const r = await readAirtable(baseId, tableId, airtableToken);
+    checks.airtable = r.ok ? { ok: true } : { ok: false, error: r.error };
+    if (!r.ok) healthy = false;
   }
 
   // Reachability only. Validating the key would need a full-access token, and

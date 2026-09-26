@@ -65,6 +65,71 @@ function trimmed(value, max) {
   return value.trim().slice(0, max);
 }
 
+/**
+ * Last-resort capture when Airtable is unreachable.
+ *
+ * Airtable blocking the write means the lead exists only in this request. If we
+ * simply return 502 the visitor is shown a database error and the lead is gone
+ * forever - nobody knows they ever came. This mails the details to the operator
+ * instead, so the lead can be typed into the tracker by hand.
+ *
+ * Resend is an independent service, so this works during an Airtable outage,
+ * which is exactly when it is needed. It is deliberately best-effort: if email
+ * is down too, the caller falls back to returning an honest error rather than
+ * pretending the lead was saved.
+ */
+async function rescueLead({ name, contact, segment, channel, fields, status }) {
+  const to = process.env.ALERT_EMAIL || RESEND_REPLY_TO;
+  if (!RESEND_KEY || !to) return false;
+
+  const lines = [
+    'Airtable refused an opt-in, so this lead is not in the tracker.',
+    'Add them by hand, or fix the token and re-send from the form.',
+    '',
+    `Airtable said: HTTP ${status}`,
+    `Segment:  ${segment || '(none given)'}`,
+    `Channel:  ${channel}`,
+    '',
+    'Submitted:',
+    ...Object.entries(fields || {})
+      .filter(([, v]) => v !== '' && v != null)
+      .map(([k, v]) => `  ${k}: ${v}`),
+    '',
+    `Contact as typed: ${contact?.value || '(none)'}`,
+  ];
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RESEND_TIMEOUT_MS);
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${RESEND_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [to],
+        reply_to: RESEND_REPLY_TO,
+        subject: `Lead not saved - ${name} (${segment || 'no segment'})`,
+        text: lines.join('\n'),
+      }),
+    });
+    if (!r.ok) {
+      console.error(`[optin] rescue email failed: ${r.status}`);
+      return false;
+    }
+    console.warn(`[optin] lead "${name}" rescued by email; Airtable returned ${status}`);
+    return true;
+  } catch (err) {
+    console.error(`[optin] rescue email errored: ${err.message}`);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 
 /**
  * The Airtable table is edited by hand, so its columns drift from this file.
@@ -496,7 +561,20 @@ module.exports = async function handler(req, res) {
       console.error(
         `[optin] Airtable rejected the record (${airtable.status}) after ${ATTEMPTS} attempts: ${airtable.body}`
       );
-      return res.status(502).json({ success: false, message: 'Could not save your opt-in just now. Please try again in a moment.' });
+
+      // Airtable is down, but the lead is not a lost cause: the consent was
+      // captured and Resend is a separate service that is probably fine. Email
+      // the details to the operator so the lead can be entered by hand, and let
+      // the visitor succeed - the blueprint is served from the page itself, and
+      // showing them an error over a database outage helps nobody.
+      //
+      // Returning an error here is what actually loses leads: the visitor walks
+      // away and nobody ever knows they existed.
+      const rescued = await rescueLead({ name, contact, segment, channel, fields, status: airtable.status });
+      if (!rescued) {
+        // No rescue path either. Now an error is the honest answer.
+        return res.status(502).json({ success: false, message: 'Could not save your opt-in just now. Please try again in a moment.' });
+      }
     }
 
     // The lead is captured at this point, so delivery is best-effort and

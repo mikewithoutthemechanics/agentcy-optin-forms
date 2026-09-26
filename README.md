@@ -32,6 +32,13 @@ Delivery is best-effort by design. The Airtable write happens first, so an email
 logs and still returns 200 — a real lead is never told they had not signed up. The
 download button is always rendered, so the promise holds even with no mail provider.
 
+If **Airtable** fails after every retry, the lead is emailed to `ALERT_EMAIL` instead and
+the visitor still succeeds. Airtable down means the lead exists only in that request, and
+returning 502 loses it outright — the visitor walks away and nobody knows they came.
+Resend is an independent service, so that path works during an Airtable outage. If both
+are down, an honest 502 is returned, because at that point the lead really is lost and
+saying otherwise would be a lie.
+
 ## Pages
 
 | File | Segment | In funnel |

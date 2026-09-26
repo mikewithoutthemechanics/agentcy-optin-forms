@@ -78,10 +78,56 @@ test('gives up after a bounded number of attempts rather than spinning', async (
 
   const res = await h.invoke(handler, { ...h.base, contact: 'retry.giveup@example.co.za' });
 
-  assert.equal(res.statusCode, 502, 'a persistently failing write still surfaces');
-  assert.equal(res.body.success, false);
+  // Airtable is down. The visitor still succeeds, because the blueprint is
+  // served from the page and an error over a database outage only loses the
+  // lead. The details are emailed to the operator instead.
+  assert.equal(res.statusCode, 200, 'the lead is not lost to an outage');
+  assert.equal(res.body.success, true);
   assert.equal(stub.attempts, 3, 'and it stopped at the attempt ceiling');
   assert.equal(h.calls.airtableWrites.length, 0, 'no phantom lead was written');
+
+  // Two sends: the rescue to the operator, and the blueprint to the visitor.
+  const rescue = h.calls.resendSends.filter((m) => /Lead not saved/.test(m.subject));
+  assert.equal(rescue.length, 1, 'the lead was rescued by email');
+});
+
+test('the rescue email carries enough to rebuild the record by hand', async () => {
+  h.resetCalls();
+  global.fetch = flakyWriteStub({ failures: 99 }).fetch;
+
+  await h.invoke(handler, {
+    ...h.base,
+    name: 'Nomsa Dlamini',
+    business: 'Dlamini Hair Studio',
+    contact: 'retry.contents@example.co.za',
+  });
+
+  const rescue = h.calls.resendSends.find((m) => /Lead not saved/.test(m.subject));
+  assert.ok(rescue, 'the rescue email was sent');
+  const text = rescue.text;
+  assert.match(text, /Nomsa Dlamini/, 'name');
+  assert.match(text, /Dlamini Hair Studio/, 'business');
+  assert.match(text, /retry\.contents@example\.co\.za/, 'the contact');
+  assert.match(text, /KZN Trades\/Local SMBs/, 'segment');
+  assert.match(text, /HTTP 403/, 'what Airtable said');
+});
+
+test('an honest 502 when the rescue path is down too', async () => {
+  h.resetCalls();
+  const inner = flakyWriteStub({ failures: 99 }).fetch;
+  // Airtable fails AND the rescue email cannot be sent: there is nowhere left
+  // to keep this lead, so claiming success would be a lie.
+  global.fetch = async (url, opts = {}) => {
+    if (String(url).includes('api.resend.com')) {
+      return { ok: false, status: 500, json: async () => ({}), text: async () => 'down' };
+    }
+    return inner(url, opts);
+  };
+
+  const res = await h.invoke(handler, { ...h.base, contact: 'nowhere.to.go@example.co.za' });
+
+  assert.equal(res.statusCode, 502, 'tells the truth when the lead is genuinely lost');
+  assert.equal(res.body.success, false);
 });
 
 test('does not retry a 422, because only a human can fix a bad payload', async () => {
@@ -89,9 +135,7 @@ test('does not retry a 422, because only a human can fix a bad payload', async (
   const stub = flakyWriteStub({ failures: 99, status: 422 });
   global.fetch = stub.fetch;
 
-  const res = await h.invoke(handler, { ...h.base, contact: 'retry.422@example.co.za' });
-
-  assert.equal(res.statusCode, 502);
+  await h.invoke(handler, { ...h.base, contact: 'retry.422@example.co.za' });
   assert.equal(stub.attempts, 1, 'exactly one attempt - no pointless retries');
 });
 

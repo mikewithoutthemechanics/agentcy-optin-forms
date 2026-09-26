@@ -4,6 +4,8 @@ const TOKEN = process.env.AIRTABLE_API_KEY;
 
 const RESEND_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM = process.env.RESEND_FROM || 'Agentcy <onboarding@resend.dev>';
+// Replies must reach a monitored inbox. The sending subdomain is not one.
+const RESEND_REPLY_TO = process.env.RESEND_REPLY_TO || 'hello@agentcy.co.za';
 const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '+27837915429').replace(/\D/g, '');
 
 const STATUS_NEW = 'New Opt-In';
@@ -126,6 +128,7 @@ async function sendLeadMagnet({ to, name, magnet, downloadUrl }) {
     body: JSON.stringify({
       from: RESEND_FROM,
       to: [to],
+      reply_to: RESEND_REPLY_TO,
       subject: `Your free blueprint: ${magnet.title}`,
       html: `
         <div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:560px">

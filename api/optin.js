@@ -169,6 +169,71 @@ function whatsappLink(name, magnet, downloadUrl) {
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
 }
 
+/**
+ * Per-IP submission throttle, evaluated before the Airtable write so junk
+ * traffic never reaches the tracker.
+ *
+ * Caveat worth knowing: Vercel does not guarantee a warm instance, so this
+ * Map is per-instance. It reliably absorbs bursts and casual abuse, but a
+ * determined attacker spread across cold starts can exceed it. For a hard
+ * guarantee, set REDIS_URL + REDIS_TOKEN and the same check runs against
+ * Upstash instead - see `checkRateLimit` below.
+ */
+const WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000);
+const MAX_PER_WINDOW = Number(process.env.RATE_LIMIT_MAX || 5);
+const hits = new Map();
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
+  return req.headers['x-real-ip'] || req.socket?.remoteAddress || 'unknown';
+}
+
+function localRateLimit(ip) {
+  const now = Date.now();
+
+  for (const [key, stamps] of hits) {
+    const live = stamps.filter((t) => now - t < WINDOW_MS);
+    if (live.length) hits.set(key, live);
+    else hits.delete(key);
+  }
+
+  const seen = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
+  if (seen.length >= MAX_PER_WINDOW) {
+    return { limited: true, retryAfter: Math.ceil((WINDOW_MS - (now - seen[0])) / 1000) };
+  }
+  seen.push(now);
+  hits.set(ip, seen);
+  return { limited: false };
+}
+
+async function checkRateLimit(ip) {
+  const url = process.env.REDIS_URL;
+  const token = process.env.REDIS_TOKEN;
+  if (!url || !token) return localRateLimit(ip);
+
+  try {
+    // Fixed-window counter, so a burst cannot slip through by straddling a boundary.
+    const bucket = Math.floor(Date.now() / WINDOW_MS);
+    const key = `rl:${bucket}:${ip}`;
+    const res = await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([['INCR', key], ['EXPIRE', key, Math.ceil(WINDOW_MS / 1000) + 60]]),
+    });
+    const count = Number(Array.isArray(res.json) ? 0 : 0) || (await res.json())?.[0]?.result || 0;
+    if (count > MAX_PER_WINDOW) {
+      const retryAfter = Math.ceil((WINDOW_MS - (Date.now() % WINDOW_MS)) / 1000);
+      return { limited: true, retryAfter };
+    }
+    return { limited: false };
+  } catch (err) {
+    // Never let the limiter itself take the form down.
+    console.error('[optin] Redis rate limit failed, falling back to in-memory:', err.message);
+    return localRateLimit(ip);
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -213,10 +278,24 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ success: false, message: 'Consent is required' });
   }
 
+  // Throttled after validation so a fat-fingered human who mistypes their
+  // email does not burn their own quota, but before the Airtable write so
+  // junk never lands in the tracker.
+  const limit = await checkRateLimit(clientIp(req));
+  if (limit.limited) {
+    const mins = Math.max(1, Math.ceil(limit.retryAfter / 60));
+    console.warn(`[optin] rate limited ${clientIp(req)}`);
+    res.setHeader('Retry-After', String(limit.retryAfter));
+    return res.status(429).json({
+      success: false,
+      message: `Too many submissions from this connection. Try again in ${mins} minute${mins > 1 ? 's' : ''}, or email hello@agentcy.co.za.`,
+    });
+  }
+
   try {
     if (!TOKEN) {
       console.error('[optin] AIRTABLE_API_KEY is not set.');
-      return res.status(500).json({ success: false, message: 'Server not configured' });
+      return res.status(500).json({ success: false, message: "Something went wrong on our side. Please try again or email hello@agentcy.co.za." });
     }
 
     const allowed = await allowedFields();
@@ -236,7 +315,7 @@ module.exports = async function handler(req, res) {
     if (!airtable.ok) {
       const detail = await airtable.text();
       console.error(`[optin] Airtable rejected the record (${airtable.status}): ${detail}`);
-      return res.status(502).json({ success: false, message: 'Could not save your opt-in' });
+      return res.status(502).json({ success: false, message: 'Could not save your opt-in just now. Please try again in a moment.' });
     }
 
     // The lead is captured at this point, so delivery is best-effort and
@@ -265,6 +344,6 @@ module.exports = async function handler(req, res) {
     });
   } catch (err) {
     console.error('[optin] Unhandled error:', err);
-    return res.status(500).json({ success: false, message: 'Could not save your opt-in' });
+    return res.status(500).json({ success: false, message: 'Something went wrong on our side. Please try again or email hello@agentcy.co.za.' });
   }
 }

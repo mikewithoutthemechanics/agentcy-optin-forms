@@ -523,16 +523,17 @@
             body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))
           });
           
+          const data = await response.json().catch(() => null);
           if (response.ok) {
-            showSuccess(await response.json().catch(() => null));
+            showSuccess(data);
           } else {
-            throw new Error('Submission failed');
+            throw new Error(data?.message || 'Submission failed');
           }
         } catch (err) {
           console.error(err);
           submitBtn.classList.remove('loading');
           submitBtn.disabled = false;
-          alert('Something went wrong. Please try again or email hello@agentcy.co.za');
+          alert(err.message || 'Something went wrong. Please try again or email hello@agentcy.co.za');
         }
       });
     })();

@@ -468,7 +468,7 @@
       function validateField(input, wrapperId, errorId) {
         if (input.required && !input.value.trim()) { showError(wrapperId, errorId); return false; }
         if (input.type === 'email' && input.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value)) { showError(wrapperId, errorId); return false; }
-        if (input.type === 'url' && input.value && !/^https?:\/\/.+/.test(input.value)) { showError(wrapperId, errorId); return false; }
+        if (input.type === 'url' && input.value && !/^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(input.value.trim())) { showError(wrapperId, errorId); return false; }
         clearError(wrapperId, errorId); return true;
       }
 

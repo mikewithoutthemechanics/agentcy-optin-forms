@@ -84,13 +84,20 @@ Set in Vercel → Settings → Environment Variables. All three environments.
 | `RESEND_TIMEOUT_MS` | no | defaults `5000` |
 | `AIRTABLE_SCHEMA_TTL_MS` | no | defaults `600000` |
 | `REDIS_URL` + `REDIS_TOKEN` | no | see Rate limiting |
+| `CRON_SECRET` | for crons | Vercel sends it as `Authorization: Bearer …`; both jobs refuse without it |
+| `ALERT_EMAIL` | no | where health alerts go; defaults to `RESEND_REPLY_TO` |
+| `FOLLOWUP_SECRET` | for follow-up | signs unsubscribe links; falls back to `CRON_SECRET` |
+| `BASE_URL` | recommended | canonical origin used in unsubscribe links |
+| `CALENDLY_URL` | no | booking link in touches 2 and 3 |
+| `FOLLOWUP_MAX_PER_RUN` | no | defaults `25`, a runaway-batch guard |
+| `AIRTABLE_RETRY_ATTEMPTS` | no | defaults `3`; see Airtable tracker |
 
 ## Deploying
 
 Push to `master`; the GitHub integration deploys automatically.
 
 ```bash
-node --test tests/optin.test.js     # 17 tests, no network needed
+node --test tests/*.test.js    # 74 tests, no network needed
 ```
 
 ## Health check
@@ -104,7 +111,14 @@ or Vercel cron at it.
 Per-IP sliding window, evaluated before the Airtable write so junk never reaches the
 tracker, and after validation so a human who mistypes their email is not locked out.
 
-The counter is an in-memory `Map`, and Vercel does not guarantee a warm instance — so it
+The client address comes from `x-vercel-forwarded-for`, falling back to the **last** entry
+of `x-forwarded-for`. This matters: `x-forwarded-for` is client-controlled, and a proxy
+appends the real address to whatever the caller sent, so the first entry is the caller's
+own claim. Trusting it meant anyone could bypass the limiter with a forged header and a
+fresh IP per submission.
+
+The counter is an in-memory `Map` with a hard cap, swept a slice at a time so a request
+does not cost O(distinct IPs seen). Vercel does not guarantee a warm instance, so this
 absorbs bursts and casual abuse but is **not** a hard guarantee against a determined
 attacker. Setting `REDIS_URL` and `REDIS_TOKEN` (Upstash free tier is ample) switches the
 same check to a shared counter with no code change.
@@ -133,9 +147,7 @@ table does not have, so renaming a column degrades one field instead of failing 
 lead. Watch the Vercel logs for `Airtable table is missing column(s)`.
 
 Pipeline columns (`Status`, `Touch Count`, `Next Follow-Up Date`, …) are set on create and
-are yours to work from. **The follow-up sequence is not implemented** — the `*-followup`
-JSON scenarios and `scripts/daily_followup.py` in this repo are blueprints for it, not
-running code. Nothing reads those columns yet.
+are read by the follow-up job below.
 
 Views worth creating:
 
@@ -143,6 +155,34 @@ Views worth creating:
 2. **Today's Follow-Ups** — `Next Follow-Up Date` is today AND `Touch Count` < 3
 3. **By Segment** — group by `Segment`
 4. **Consent Audit** — `POPIA Consent` = "No" (should be zero; the API rejects these)
+5. **Unsubscribed** — `Status` = "Unsubscribed"
+
+## Scheduled jobs
+
+Two Vercel crons, both in `vercel.json` and both requiring `CRON_SECRET`:
+
+| Job | Schedule | What it does |
+| --- | --- | --- |
+| `/api/cron/health-watch` | 06:00 UTC daily | Silent while healthy. Emails `ALERT_EMAIL` when a check fails. |
+| `/api/cron/followup` | 07:00 UTC daily | Sends the follow-up sequence to whoever is due. |
+
+`health-watch` is deliberately stateless. The obvious design — remember "I am already
+alerting" in Airtable — would make the monitor depend on the service it exists to watch,
+so an Airtable outage would silence the alarm. It is a dead-man's switch instead, which
+means **there is no "recovered" email**: silence after an alert is the signal. The check
+itself retries, because Airtable throttling during a burst would otherwise report a
+perfectly working form as down — and a false alarm is worse than none, because it teaches
+you to ignore the alert you actually need.
+
+## Follow-up sequence
+
+Three touches, on days 2, 5 and 8, then the lead is parked as `Paused`. Copy is
+segment-specific (`api/_followup.js`). A lead whose send fails keeps its scheduled date, so
+it is retried tomorrow instead of silently disappearing.
+
+**Email only.** Phone and LinkedIn leads are skipped and left for a human. The original
+blueprint dialled Twilio for WhatsApp (never connected) and sent automated LinkedIn DMs,
+which breaks LinkedIn's terms and gets the account restricted.
 
 ## POPIA
 
@@ -150,9 +190,12 @@ Views worth creating:
 - An unconsented submission never reaches Airtable.
 - Duplicate suppression keeps one person to one record inside 30 days, so a follow-up
   sequence cannot message the same lead three times.
-- The lead magnet email carries a `reply-to` at a monitored address and asks for STOP.
-  **There is no automatic suppression list** — handle STOP manually, or add the address
-  to Resend suppressions.
+- Every follow-up email carries a one-click unsubscribe link, HMAC-signed per record so it
+  cannot be used to opt somebody else out by guessing ids. Unsubscribing sets `Status` to
+  `Unsubscribed`, which the due filter already excludes — so there is no second suppression
+  list to drift out of sync.
+- If the unsubscribe write fails, the page offers a direct email address rather than
+  pretending it worked.
 - Register as a direct marketer with the NCC and run the monthly cleanse:
 
 ```bash
@@ -163,11 +206,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now agentcy-ncc-cleanse.
 
 ## Still to do
 
-- [ ] **Rotate the Airtable PAT** — the one in use was shared in a chat and in shell history
-- [ ] Point a monitor at `/api/health`
+- [ ] **Clear the leftover test records** — `Outage Probe`, `Panel Probe 2`,
+      `RateLimit Impact`, `Prod Impact`, `Block Check` are still in the tracker
 - [ ] Add `REDIS_URL` / `REDIS_TOKEN` for durable rate limiting
-- [ ] Serve from a `agentcy.co.za` subdomain rather than `*.vercel.app`
-- [ ] Implement the follow-up sequence
 - [ ] Decide whether to keep the three long forms
 - [ ] Fix the `michaelgrazemek@gmail.com` (stray "z") reply-to in the Agentcy Pipeline
       automation — it is **not** in this repo, it lives in whatever sends that mail

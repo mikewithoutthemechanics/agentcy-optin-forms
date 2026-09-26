@@ -86,6 +86,12 @@ async function allowedFields() {
 /**
  * True when this contact already opted in inside the dedupe window. Airtable
  * has no unique-constraint equivalent, so this is a filtered read.
+ *
+ * The cutoff is computed here rather than with a relative Airtable date
+ * function: there is no LAST_N_DAYS, and a bad formula returns 422 which -
+ * because this check must never block a lead - would be swallowed into a
+ * silent "not a duplicate". That bug shipped once, so the formula lives here
+ * in one place and is covered by a test asserting its shape.
  */
 async function findRecentDuplicate(contact) {
   if (!contact?.value || contact.kind === 'invalid') return null;
@@ -93,13 +99,22 @@ async function findRecentDuplicate(contact) {
   const column = { email: 'Email', phone: 'Phone', linkedin: 'LinkedIn' }[contact.kind];
   if (!column) return null;
 
-  const formula = `AND({${column}} = "${contact.value.replace(/"/g, '\\"')}", IS_AFTER({Opt-In Date}, LAST_N_DAYS(-${DEDUPE_WINDOW_DAYS})))`;
+  const cutoff = new Date(Date.now() - DEDUPE_WINDOW_DAYS * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const formula =
+    `AND({${column}} = "${contact.value.replace(/"/g, '\\"')}", ` +
+    `IS_AFTER({Opt-In Date}, "${cutoff}"))`;
   const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
   if (!res.ok) {
-    // Never block a real lead because the duplicate check is unavailable.
-    console.error(`[optin] duplicate check failed (${res.status}); continuing`);
+    // Never block a real lead because the duplicate check is unavailable,
+    // but make it loud: a silent failure here means duplicate rows.
+    const detail = await res.text().catch(() => '');
+    console.error(
+      `[optin] DUPLICATE CHECK FAILED (${res.status}) - duplicates are not being prevented. ${detail}`
+    );
     return null;
   }
   const { records } = await res.json();

@@ -55,8 +55,14 @@ The frictionless forms collect one `contact` field that changes type with the to
 | `+27837915429` | `Phone` | gets download link + WhatsApp button instead |
 | `linkedin.com/in/priyan` | `LinkedIn` | prof-services form only |
 
-`Email`, `Phone` and `LinkedIn` are Airtable columns. **The `LinkedIn` column must exist**
-or LinkedIn submissions are accepted but the URL is dropped (logged as a warning).
+`Email`, `Phone` and `LinkedIn` are Airtable columns. The function reads the live column
+list before writing and silently drops any field the table does not have, so renaming a
+column degrades one field instead of failing every lead. Watch the Vercel logs for
+`Airtable table is missing column(s)`.
+
+**After adding a column, redeploy or wait 10 minutes.** The schema is cached per instance
+for `AIRTABLE_SCHEMA_TTL_MS`, so a warm function will keep using the field list it read
+before the column existed.
 
 ## Environment variables
 
@@ -154,9 +160,10 @@ sudo systemctl daemon-reload && sudo systemctl enable --now agentcy-ncc-cleanse.
 ## Still to do
 
 - [ ] **Rotate the Airtable PAT** — the one in use was shared in a chat and in shell history
-- [ ] Add the `LinkedIn` column to the tracker
 - [ ] Point a monitor at `/api/health`
 - [ ] Add `REDIS_URL` / `REDIS_TOKEN` for durable rate limiting
 - [ ] Serve from a `agentcy.co.za` subdomain rather than `*.vercel.app`
 - [ ] Implement the follow-up sequence
 - [ ] Decide whether to keep the three long forms
+- [ ] Fix the `michaelgrazemek@gmail.com` (stray "z") reply-to in the Agentcy Pipeline
+      automation — it is **not** in this repo, it lives in whatever sends that mail

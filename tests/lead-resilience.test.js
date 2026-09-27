@@ -149,3 +149,104 @@ test('a totally broken Airtable never returns a 500', async () => {
   assert.ok(res.body && res.body.message, 'always a JSON body with a message');
   assert.ok([200, 502].includes(res.statusCode), `unexpected status ${res.statusCode}`);
 });
+
+test('an unticked box produces an empty consent field and is refused', async () => {
+  // This is the real bug. Every form used to ship
+  // <input name="popia_consent" value="Yes">, so the default - a visitor who
+  // never ticked anything - recorded consent they never gave. The field now
+  // ships empty and is only filled by the checkbox, so the default is
+  // "not consented" and the honest path cannot consent by accident.
+  //
+  // Note what is and is not being claimed: a web form cannot prove a human
+  // clicked a box, so a deliberate forgery of popia_consent="Yes" is always
+  // possible. What this fixes is the default, and that is the failure that was
+  // actually happening.
+  h.resetCalls();
+  global.fetch = h.defaultFetch;
+
+  // FormData omits an unchecked checkbox, so this is exactly what the browser
+  // sends when the box is left alone.
+  const res = await h.invoke(handler, {
+    name: 'Never Ticked',
+    contact: 'never.ticked@example.co.za',
+    segment: 'KZN Trades/Local SMBs',
+    pain_point: 'x',
+    popia_consent: '',
+  });
+
+  assert.equal(res.statusCode, 400, 'no consent recorded');
+  assert.equal(h.calls.airtableWrites.length, 0, 'and nothing was written');
+});
+
+test('a missing consent field is refused', async () => {
+  h.resetCalls();
+  global.fetch = h.defaultFetch;
+
+  const res = await h.invoke(handler, {
+    name: 'No Field',
+    contact: 'no.field@example.co.za',
+    segment: 'KZN Trades/Local SMBs',
+    pain_point: 'x',
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(h.calls.airtableWrites.length, 0);
+});
+
+test('a ticked checkbox - the real browser shape - is accepted', async () => {
+  h.resetCalls();
+  global.fetch = h.defaultFetch;
+
+  const res = await h.invoke(handler, {
+    name: 'Real Consent',
+    contact: 'real.consent@example.co.za',
+    segment: 'KZN Trades/Local SMBs',
+    pain_point: 'x',
+    popia_consent: 'Yes',
+    popia_consent_check: 'on', // an HTML checkbox with no value attribute
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(h.calls.airtableWrites.length, 1);
+});
+
+test('a request that claims consent while sending a falsy box is refused', async () => {
+  h.resetCalls();
+  global.fetch = h.defaultFetch;
+
+  // A real unticked checkbox is omitted from FormData entirely, so the
+  // unticked case is already covered by the empty hidden field. This is the
+  // distinct case: a request that says "Yes" while explicitly sending a box
+  // that says no. When the two disagree, the box wins.
+  for (const falsy of ['No', 'false', '0', 'off']) {
+    h.resetCalls();
+    const res = await h.invoke(handler, {
+      name: 'Tampered ' + falsy,
+      contact: `tampered.${falsy}@example.co.za`,
+      segment: 'KZN Trades/Local SMBs',
+      pain_point: 'x',
+      popia_consent: 'Yes',
+      popia_consent_check: falsy,
+    });
+    assert.equal(res.statusCode, 400, `box saying "${falsy}" must not be overridden`);
+    assert.equal(h.calls.airtableWrites.length, 0);
+  }
+});
+
+test('the forms no longer ship a pre-ticked consent field', () => {
+  const fs = require('fs');
+  const forms = fs.readdirSync(__dirname + '/..')
+    .filter((f) => f.endsWith('.html') && f !== 'index.html');
+  assert.ok(forms.length >= 6, `found ${forms.length} forms`);
+  for (const f of forms) {
+    const src = fs.readFileSync(require('path').join(__dirname, '..', f), 'utf8');
+    assert.ok(
+      !/name="popia_consent" value="Yes"/.test(src),
+      `${f} still hardcodes consent to Yes before anyone ticks the box`
+    );
+    assert.ok(
+      /name="popia_consent_check"/.test(src),
+      `${f} has no consent checkbox to sync from`
+    );
+  }
+});

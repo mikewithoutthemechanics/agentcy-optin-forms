@@ -548,7 +548,17 @@ module.exports = async function handler(req, res) {
   }
 
   // POPIA: an unconsented submission must never reach the CRM.
-  if (trimmed(body.popia_consent) !== 'Yes') {
+  //
+  // The hidden `popia_consent` field is client-supplied, so trusting it alone
+  // means anyone who posts directly - a bot, curl - claims consent they never
+  // gave by sending that one field. The forms now ship it empty and fill it
+  // from the checkbox, and if a request carries the checkbox itself we insist
+  // it is actually ticked.
+  const consentField = trimmed(body.popia_consent);
+  const consentBox = trimmed(body.popia_consent_check, 5);
+  const boxSaysNo = consentBox !== '' && !/^(yes|on|true|1)$/i.test(consentBox);
+
+  if (consentField !== 'Yes' || boxSaysNo) {
     return res.status(400).json({ success: false, message: 'Consent is required' });
   }
 

@@ -203,6 +203,11 @@ which breaks LinkedIn's terms and gets the account restricted.
 ## POPIA
 
 - Consent is enforced **server-side**; the client-side checkbox is convenience only.
+- The hidden `popia_consent` field **ships empty** and is filled from the checkbox. It
+  previously shipped as `value="Yes"`, which meant the default — a visitor who never
+  ticked anything — recorded consent they never gave. A web form cannot prove a human
+  clicked a box, so a deliberate forgery is always possible; what matters is that the
+  default is *not* consent.
 - An unconsented submission never reaches Airtable.
 - Duplicate suppression keeps one person to one record inside 30 days, so a follow-up
   sequence cannot message the same lead three times.

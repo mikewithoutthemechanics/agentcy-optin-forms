@@ -171,7 +171,7 @@
       <input type="hidden" name="lead_magnet" value="Prof Services: AI Readiness Checklist">
       <input type="hidden" name="source" value="agentcy-website" id="sourceField">
       <input type="hidden" name="optin_date" id="optinDateField">
-      <input type="hidden" name="popia_consent" value="Yes" id="popiaConsentField">
+      <input type="hidden" name="popia_consent" value="" id="popiaConsentField">
 
       <div class="field-group">
         <label for="name" class="required">Full Name</label>
@@ -300,8 +300,17 @@
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('source')) document.getElementById('sourceField').value = urlParams.get('source');
 
+      // Consent is the visitor's decision: start empty and let the checkbox
+
+
+      // own it, rather than shipping a hidden field that already says Yes.
+
+
+      popiaConsentField.value = popiaConsent.checked ? 'Yes' : '';
+
+
       popiaConsent.addEventListener('change', () => {
-        popiaConsentField.value = popiaConsent.checked ? 'Yes' : 'No';
+        popiaConsentField.value = popiaConsent.checked ? 'Yes' : '';
       });
 
       // Field ids do not all follow the `<id>Wrapper` / `<id>Error` pattern,

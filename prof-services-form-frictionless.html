@@ -464,6 +464,18 @@
       }
       
       emailBtn.addEventListener('click', () => setContactMethod('Email'));
+
+      // Initial channel: make the markup agree with itself.
+      //
+      // setContactMethod was only ever called from the click handlers, so the
+      // button marked "active" in the HTML and the actual field could drift
+      // apart. On the online-SMB form WhatsApp shipped highlighted while the
+      // input was type="email", so a visitor who trusted the UI and typed a
+      // phone number was silently refused by the browser with no message.
+      // Deriving everything from whichever button is active means the
+      // highlight, the label, the input type and the placeholder can never
+      // disagree.
+      setContactMethod(linkedinBtn.classList.contains('active') ? 'LinkedIn' : 'Email');
       linkedinBtn.addEventListener('click', () => setContactMethod('LinkedIn'));
 
       function showError(wrapperId, errorId) {

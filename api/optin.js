@@ -137,26 +137,65 @@ async function rescueLead({ name, contact, segment, channel, fields, status }) {
 
 
 /**
+ * The columns this function writes, used only if the live schema can never be
+ * read. Kept in sync with buildFields() below - that map is the source of truth
+ * for what we write, and this is the same list spelled out for the case where
+ * asking Airtable is not possible.
+ */
+const FALLBACK_FIELDS = new Set([
+  'Name', 'Business', 'Segment', 'Area', 'Preferred Channel', 'Pain Point',
+  'Current Tools', 'Email', 'Phone', 'LinkedIn', 'POPIA Consent', 'Consent Basis',
+  'Source', 'Opt-In Date', 'Status', 'Booked Call', 'Attended', 'Qualified',
+  'Proposal Sent', 'Next Action', 'Next Follow-Up Date', 'Touch Count',
+  'Last Touch Date', 'Lead Magnet',
+]);
+
+let lastKnownFields = null;
+
+/**
  * The Airtable table is edited by hand, so its columns drift from this file.
  * Read the live schema and only submit columns that actually exist, rather
- * than 422-ing every lead over a renamed field. Cached with a TTL so a
- * rename is picked up on a warm instance instead of only after a recycle.
+ * than 422-ing every lead over a renamed field. Cached with a TTL so a rename
+ * is picked up on a warm instance instead of only after a recycle.
+ *
+ * This must never be able to lose a lead. It is an optimisation that avoids one
+ * specific failure mode, so if it cannot run we fall back rather than throw:
+ * losing every submission because we could not ask a question is exactly the
+ * bug it was meant to prevent. (It was, in production, when an Airtable timeout
+ * turned every opt-in into a 500.)
  */
 async function allowedFields() {
   if (cachedFields && Date.now() - cachedAt < SCHEMA_TTL_MS) return cachedFields;
 
   const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID}/tables`, {
+    // No retries: this call is optional, and spending the request budget on it
+    // starves the write that actually matters.
+    attempts: 1,
     reserveMs: WRITE_RESERVE_MS + DEDUPE_RESERVE_MS,
   });
-  if (!ok) throw new Error(`Airtable schema fetch failed: ${status} ${body}`);
 
-  const { tables } = JSON.parse(body);
-  const table = tables.find((t) => t.id === TABLE_ID);
-  if (!table) throw new Error(`Airtable table ${TABLE_ID} not found in base ${BASE_ID}`);
+  if (ok) {
+    try {
+      const { tables } = JSON.parse(body);
+      const table = tables.find((t) => t.id === TABLE_ID);
+      if (table) {
+        cachedFields = new Set(table.fields.map((f) => f.name));
+        cachedAt = Date.now();
+        lastKnownFields = cachedFields;
+        return cachedFields;
+      }
+      console.error(`[optin] Airtable table ${TABLE_ID} not found in base ${BASE_ID}`);
+    } catch (err) {
+      console.error(`[optin] Airtable schema response was unreadable: ${err.message}`);
+    }
+  } else {
+    console.warn(`[optin] Airtable schema fetch failed (${status}); using the last known column list`);
+  }
 
-  cachedFields = new Set(table.fields.map((f) => f.name));
-  cachedAt = Date.now();
-  return cachedFields;
+  if (lastKnownFields) return lastKnownFields;
+
+  console.warn('[optin] No live or cached column list; writing the built-in list');
+  return FALLBACK_FIELDS;
 }
 
 /**

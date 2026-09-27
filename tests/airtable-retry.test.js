@@ -148,28 +148,26 @@ test('does not retry a 401', async () => {
   assert.equal(stub.attempts, 1);
 });
 
-test('retries the schema read too, so a cold start under load still works', async () => {
+test('the optional schema read is not retried, and the lead is saved anyway', async () => {
   h.resetCalls();
-  // allowedFields() memoises the schema per module instance, and an earlier
-  // test in this process has already populated it. A fresh module is the only
-  // way to exercise the cold-start path.
+  // Fresh module so the schema cache starts cold.
   delete require.cache[require.resolve('../api/optin.js')];
-  const fresh = h.loadHandler();
+  const target = h.loadHandler();
 
   let schemaCalls = 0;
   global.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('/meta/bases/')) {
       schemaCalls += 1;
-      if (schemaCalls <= 1) return h.jsonResponse({ error: 'throttled' }, 403);
-      return h.schemaResponse();
+      return h.jsonResponse({ error: 'throttled' }, 403);
     }
     return h.defaultFetch(url, opts);
   };
 
-  const res = await h.invoke(fresh, { ...h.base, contact: 'retry.schema@example.co.za' });
-  assert.equal(res.statusCode, 200);
-  assert.equal(schemaCalls, 2, 'the schema read was retried');
+  const res = await h.invoke(target, { ...h.base, contact: 'retry.schema@example.co.za' });
+
+  assert.equal(res.statusCode, 200, 'a throttled schema read must not cost the lead');
+  assert.equal(schemaCalls, 1, 'it is optional, so retrying just spends budget the write needs');
   assert.equal(h.calls.airtableWrites.length, 1);
 });
 

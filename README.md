@@ -220,6 +220,23 @@ sudo cp agentcy-ncc-cleanse.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now agentcy-ncc-cleanse.timer
 ```
 
+## Free-tier budget
+
+Everything here is designed to stay inside the free tiers. What each limit costs
+you, and how much room is left:
+
+| Service | Free limit | Our worst realistic day | Notes |
+|---|---|---|---|
+| **Resend** | 100 emails/day, 3,000/month | ~22 | 1 blueprint per lead, up to 25 follow-ups, 1 health alert, plus 1 rescue per lead *only while Airtable is broken* |
+| **Vercel** | 10s per function | ~9s | `AIRTABLE_REQUEST_BUDGET_MS` (4s) + two 2.5s email sends. The deadline is what keeps it under; without it a retry chain ran 38s and Vercel killed the request |
+| **Vercel crons** | daily frequency only | 2 jobs | Both schedules are daily, which is all Hobby allows. Hobby caps crons per project, so do not add a third without checking |
+| **Airtable** | 5 requests/second | ~3 per submission | Schema read is cached 10 minutes and makes a *single* attempt, because it is optional |
+| **Airtable rows** | 5,000 per table on Free | ~7/day | Years of runway |
+
+Two things that will silently eat a budget if changed: `FOLLOWUP_MAX_PER_RUN`
+(25 emails in one run) and the health alert, which repeats every day for as long
+as a fault lasts. Both are deliberate caps, not oversights.
+
 ## Still to do
 
 - [ ] **Clear the leftover test records** — `Outage Probe`, `Panel Probe 2`,

@@ -17,28 +17,76 @@
 
 const ATTEMPTS = Number(process.env.AIRTABLE_RETRY_ATTEMPTS || 3);
 const BACKOFF_MS = Number(process.env.AIRTABLE_RETRY_BACKOFF_MS || 250);
-const TIMEOUT_MS = Number(process.env.AIRTABLE_TIMEOUT_MS || 4000);
+const TIMEOUT_MS = Number(process.env.AIRTABLE_TIMEOUT_MS || 2500);
+const REQUEST_BUDGET_MS = Number(process.env.AIRTABLE_REQUEST_BUDGET_MS || 4000);
 
 const BASE = 'https://api.airtable.com/v0';
 const TOKEN = () => process.env.AIRTABLE_API_KEY;
+
+// Vercel kills a function that overruns its limit and returns an HTML error
+// page, not JSON. The browser then cannot parse the response and shows a bare
+// "Submission failed" - and the lead is gone with nothing in the logs to
+// explain it. So every Airtable call in a request shares one deadline, and
+// retries stop rather than push the request past what the platform allows.
+//
+// Without this, three Airtable calls at three attempts of four seconds each
+// could take 38s against a 10s limit.
+let deadline = Infinity;
+
+/** Called once at the top of a request to (re)start the shared budget. */
+function beginRequest(budgetMs = REQUEST_BUDGET_MS) {
+  deadline = Date.now() + budgetMs;
+  return deadline;
+}
+
+function remaining() {
+  return Math.max(0, deadline - Date.now());
+}
+
+/**
+ * Time this call may spend. `reserveMs` holds budget back for a later, more
+ * important call: the duplicate check is best-effort and must never eat the
+ * time the write needs, or an Airtable hiccup in the wrong place loses a lead
+ * that was perfectly saveable.
+ */
+function effectiveDeadline(reserveMs = 0) {
+  return Date.now() + Math.max(0, remaining() - reserveMs);
+}
 
 /**
  * One Airtable call with retries. Resolves to { ok, status, body } where body
  * is the raw text, so callers can both JSON.parse it and log it verbatim.
  */
-async function airtableRequest(path, { method = 'GET', body = null, attempts = ATTEMPTS } = {}) {
+async function airtableRequest(
+  path,
+  { method = 'GET', body = null, attempts = ATTEMPTS, reserveMs = 0 } = {}
+) {
   let status = 0;
   let lastBody = '';
+  const stopBy = effectiveDeadline(reserveMs);
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    // Never start an attempt that cannot finish inside the budget: a timeout
+    // that outlives the deadline helps nobody.
+    const left = stopBy - Date.now();
+    if (left <= 0) {
+      lastBody = lastBody || 'Airtable request budget exhausted';
+      break;
+    }
+
     if (attempt > 1) {
-      // Jitter, so simultaneous submissions do not re-collide in lockstep.
       const backoff = BACKOFF_MS * 2 ** (attempt - 2) * (0.5 + Math.random() / 2);
-      await new Promise((resolve) => setTimeout(resolve, backoff));
+      // Cap the wait at whatever is left, so backoff cannot overshoot either.
+      const wait = Math.min(backoff, Math.max(0, stopBy - Date.now()));
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      if (stopBy - Date.now() <= 0) break;
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(
+      () => controller.abort(),
+      Math.min(TIMEOUT_MS, Math.max(1, stopBy - Date.now()))
+    );
     let res;
     try {
       res = await fetch(`${BASE}/${path}`, {
@@ -80,4 +128,4 @@ async function airtableRequest(path, { method = 'GET', body = null, attempts = A
   return { ok: false, status, body: lastBody };
 }
 
-module.exports = { airtableRequest, ATTEMPTS };
+module.exports = { airtableRequest, beginRequest, remaining, ATTEMPTS };

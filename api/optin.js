@@ -1,4 +1,4 @@
-const { airtableRequest, ATTEMPTS } = require('./_airtable.js');
+const { airtableRequest, beginRequest, ATTEMPTS } = require('./_airtable.js');
 const BASE_ID = process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcCMV';
 const TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
 const TOKEN = process.env.AIRTABLE_API_KEY;
@@ -27,11 +27,16 @@ const LINKEDIN_RE = /^(https?:\/\/)?(www\.)?linkedin\.com\/(in|pub)\/[A-Za-z0-9_
 const HANDLE_RE = /^[A-Za-z0-9._-]{3,}$/;
 
 const SCHEMA_TTL_MS = Number(process.env.AIRTABLE_SCHEMA_TTL_MS || 10 * 60 * 1000);
-const RESEND_TIMEOUT_MS = Number(process.env.RESEND_TIMEOUT_MS || 5000);
+const RESEND_TIMEOUT_MS = Number(process.env.RESEND_TIMEOUT_MS || 2500);
 // A resubmission inside this window is treated as the same person, not a
 // new lead. The rate limiter allows 5 per 10 min, so without this one
 // person could create 5 rows and skew every pipeline KPI.
 const DEDUPE_WINDOW_DAYS = Number(process.env.DEDUPE_WINDOW_DAYS || 30);
+
+// Budget held back so an optional call cannot starve the Airtable write, which
+// is the only step whose failure costs a lead.
+const WRITE_RESERVE_MS = 1500;
+const DEDUPE_RESERVE_MS = 750;
 
 let cachedFields = null;
 let cachedAt = 0;
@@ -140,7 +145,9 @@ async function rescueLead({ name, contact, segment, channel, fields, status }) {
 async function allowedFields() {
   if (cachedFields && Date.now() - cachedAt < SCHEMA_TTL_MS) return cachedFields;
 
-  const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID}/tables`);
+  const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID}/tables`, {
+    reserveMs: WRITE_RESERVE_MS + DEDUPE_RESERVE_MS,
+  });
   if (!ok) throw new Error(`Airtable schema fetch failed: ${status} ${body}`);
 
   const { tables } = JSON.parse(body);
@@ -177,7 +184,7 @@ async function findRecentDuplicate(contact) {
   const path =
     `${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
 
-  const { ok, status, body } = await airtableRequest(path);
+  const { ok, status, body } = await airtableRequest(path, { reserveMs: WRITE_RESERVE_MS });
   if (!ok) {
     // Never block a real lead because the duplicate check is unavailable,
     // but make it loud: a silent failure here means duplicate rows.
@@ -455,6 +462,10 @@ async function checkRateLimit(ip) {
 }
 
 module.exports = async function handler(req, res) {
+  // One budget for every Airtable call this request makes, so retries can never
+  // push the function past Vercel's limit and get it killed mid-response.
+  beginRequest();
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ success: false, message: 'Method not allowed' });
@@ -555,6 +566,7 @@ module.exports = async function handler(req, res) {
       // typecast lets Airtable create single-select options on first use
       // instead of rejecting leads over a label mismatch.
       body: { fields, typecast: true },
+      reserveMs: 0,
     });
 
     if (!airtable.ok) {

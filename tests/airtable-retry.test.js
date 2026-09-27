@@ -247,3 +247,68 @@ test('a healthy write is not slowed down by the retry wrapper', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(attempts, 1, 'the common case still costs exactly one request');
 });
+
+test('a hanging Airtable cannot push the request past the function limit', async () => {
+  // Regression guard, and this one shipped: the retry wrapper could take 38s
+  // against Vercel's 10s function limit. Vercel kills the function and returns
+  // an HTML error page, the browser cannot parse it, and the visitor sees a
+  // bare "Submission failed" with the lead lost and nothing in the logs.
+  //
+  // So every call respects a shared deadline and the handler must answer with
+  // JSON well inside the limit, however long Airtable hangs for.
+  h.resetCalls();
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.includes('/meta/bases/')) return h.schemaResponse();
+    if (u.includes('filterByFormula')) return h.jsonResponse({ records: [] });
+    if (u.startsWith('https://api.airtable.com/v0/') && opts.method === 'POST') {
+      // Never resolves on its own; only the abort signal ends it, exactly like
+      // a TCP connection that stops responding.
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, 30000);
+        opts.signal?.addEventListener?.('abort', () => {
+          clearTimeout(t);
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      });
+    }
+    return h.defaultFetch(url, opts);
+  };
+
+  const started = Date.now();
+  const res = await h.invoke(handler, { ...h.base, contact: 'retry.hang@example.co.za' });
+  const elapsed = Date.now() - started;
+
+  assert.ok(elapsed < 9000, `answered in ${elapsed}ms, inside the 10s function limit`);
+  // A JSON body with a real message, so the form can show something useful.
+  assert.ok(res.body && typeof res.body.success === 'boolean', 'answered with JSON, not a killed request');
+  assert.equal(h.calls.airtableWrites.length, 0, 'and wrote no phantom lead');
+});
+
+test('a hanging duplicate check does not starve the write', async () => {
+  h.resetCalls();
+  global.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.includes('/meta/bases/')) return h.schemaResponse();
+    if (u.includes('filterByFormula')) {
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, 30000);
+        opts.signal?.addEventListener?.('abort', () => {
+          clearTimeout(t);
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        });
+      });
+    }
+    return h.defaultFetch(url, opts);
+  };
+
+  const started = Date.now();
+  const res = await h.invoke(handler, { ...h.base, contact: 'retry.hangdup@example.co.za' });
+  const elapsed = Date.now() - started;
+
+  // The duplicate check is best-effort by design: a timeout there must not cost
+  // the lead, because Airtable is still writable.
+  assert.equal(res.statusCode, 200, 'the lead is saved despite the duplicate check hanging');
+  assert.equal(h.calls.airtableWrites.length, 1);
+  assert.ok(elapsed < 9000, `answered in ${elapsed}ms`);
+});

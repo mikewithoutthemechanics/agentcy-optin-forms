@@ -212,7 +212,52 @@ it is retried tomorrow instead of silently disappearing.
 
 **Email only.** Phone and LinkedIn leads are skipped and left for a human. The original
 blueprint dialled Twilio for WhatsApp (never connected) and sent automated LinkedIn DMs,
-which breaks LinkedIn's terms and gets the account restricted.
+which breaks LinkedIn's terms and gets the account restricted. That blueprint has been
+removed - see [One stack](#one-stack) below.
+
+<a id="one-stack"></a>
+## One stack
+
+There is exactly one follow-up runner. Everything else that touched these leads has been
+deleted, because a second runner does not halve the emails - it doubles them:
+
+| Concern | Owner | Why |
+|---|---|---|
+| Consent + delivery | **Resend** (send-only key, `concierge.agentcy.co.za` verified) | The only sender in the stack |
+| Lead store | **Airtable**, one base, one table | `Status` is the opt-out switch, so a second list cannot drift |
+| Sequence | **Vercel cron** `/api/cron/followup`, 07:00 UTC | Always on, and it owns `Touch Count` |
+| Liveness | **Vercel cron** `/api/cron/health-watch`, 06:00 UTC | Stateless, so an Airtable outage cannot silence it |
+| WhatsApp / LinkedIn | **A human** | The forms accept these as contact channels; nothing automates them |
+
+### Removed
+
+`SENDGRID_API_KEY`, `TWILIO_*` and `LINKEDIN_ACCESS_TOKEN` are gone from the repo, along
+with everything that used them:
+
+- `.github/workflows/daily-followup.yml` — ran `scripts/daily_followup.py` on `0 7 * * *`,
+  **the same minute as the Vercel cron**, and sent via SendGrid, Twilio and LinkedIn. It
+  failed on 14 of 14 runs, every day since 2026-09-14, so it was not double-sending. It
+  was also one working secret away from doing so.
+- `.github/workflows/lead-magnet-delivery.yml` — called `scripts/deliver_lead_magnet.py`,
+  which does not exist. It could never have succeeded.
+- `scripts/daily_followup.py` — the blueprint, 23 references to the dead stack.
+- `make-scenario-followup.json`, `n8n-workflow-daily-followup.json`,
+  `pipedream-workflow-daily-followup.json` — exports for the same blueprint.
+
+### You must switch these off yourself
+
+**Deleting a workflow file from this repo does not stop an automation running in someone
+else's account.** If any of these are live, they are still sending:
+
+- **n8n** — an "Agentcy Daily Follow-Up" workflow, sending from `michael@agentcy.co.za` via
+  SendGrid, plus Twilio WhatsApp and automated LinkedIn DMs. This is the dangerous one: the
+  LinkedIn DMs are exactly what breaks LinkedIn's terms. Check it first.
+- **Make** — the "Agentcy Pipeline" scenario. Also the likely home of the stray-z
+  `michaelgrazemek@gmail.com` reply-to.
+- **Pipedream** — a daily follow-up workflow.
+
+If one of them is still on and the others are off, it is the only sender left — which is
+the same as none of them being on, minus the compliance problem.
 
 ## POPIA
 
@@ -270,9 +315,19 @@ as a fault lasts. Both are deliberate caps, not oversights.
 
 ## Still to do
 
+- [ ] **Switch off the old automations in n8n, Make and Pipedream.** See
+      [One stack](#one-stack). They are not in this repo and deleting the files
+      here did nothing to them. n8n first: it sends automated LinkedIn DMs.
+- [ ] **Delete the repo secrets** `SENDGRID_API_KEY`, `TWILIO_ACCOUNT_SID`,
+      `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `LINKEDIN_ACCESS_TOKEN` under
+      Settings → Secrets. Nothing reads them any more.
+- [ ] **Confirm `RESEND_REPLY_TO` in production** is a monitored inbox and not
+      the stray-z `michaelgrazemek@gmail.com`. Vercel will not return the value
+      of a sensitive variable, so this cannot be checked from the API.
 - [ ] **Clear the leftover test records** — `Outage Probe`, `Panel Probe 2`,
       `RateLimit Impact`, `Prod Impact`, `Block Check` are still in the tracker
 - [ ] Add `REDIS_URL` / `REDIS_TOKEN` for durable rate limiting
 - [ ] Decide whether to keep the three long forms
-- [ ] Fix the `michaelgrazemek@gmail.com` (stray "z") reply-to in the Agentcy Pipeline
-      automation — it is **not** in this repo, it lives in whatever sends that mail
+- [ ] Register with the NCC and run the monthly cleanse (see below)
+- [ ] `tests/check-url-validation.js` has no `.test.` suffix, so
+      `node --test tests/*.test.js` never runs it. Either rename it or delete it.

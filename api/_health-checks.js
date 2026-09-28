@@ -8,6 +8,7 @@
  */
 
 const CHECK_TIMEOUT_MS = 5000;
+const { BASE_ID, TABLE_ID } = require('./_airtable.js');
 
 // Distinctive so a probe row left behind by a failed cleanup is obvious in the
 // tracker rather than looking like a real lead.
@@ -17,8 +18,8 @@ const PROBE_NAME = '[health probe] delete me';
 // the checks always reflect the instance's current configuration instead of
 // whatever happened to be set when the module was first evaluated.
 const config = () => ({
-  baseId: process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcMTV',
-  tableId: process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd',
+  baseId: BASE_ID(),
+  tableId: TABLE_ID(),
   airtableToken: process.env.AIRTABLE_API_KEY,
   resendKey: process.env.RESEND_API_KEY,
 });

@@ -15,10 +15,7 @@
  */
 
 const { verifySignature } = require('./_followup.js');
-const { airtableRequest } = require('./_airtable.js');
-
-const BASE_ID = process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcMTV';
-const TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
+const { airtableRequest, BASE_ID, TABLE_ID } = require('./_airtable.js');
 
 const PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -64,7 +61,7 @@ module.exports = async function handler(req, res) {
     );
   }
 
-  const result = await airtableRequest(`${BASE_ID}/${TABLE_ID}/${recordId}`, {
+  const result = await airtableRequest(`${BASE_ID()}/${TABLE_ID()}/${recordId}`, {
     method: 'PATCH',
     // typecast creates the single-select option on first use, so this works
     // without a schema change.

@@ -14,10 +14,8 @@ const {
   DUE_FILTER,
   signRecordId,
 } = require('../_followup.js');
-const { airtableRequest } = require('../_airtable.js');
+const { airtableRequest, BASE_ID, TABLE_ID } = require('../_airtable.js');
 
-const BASE_ID = process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcMTV';
-const TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
 const MAX_PER_RUN = Number(process.env.FOLLOWUP_MAX_PER_RUN || 25);
 const SEND_TIMEOUT_MS = 8000;
 
@@ -70,7 +68,7 @@ module.exports = async function handler(req, res) {
     `https://${req.headers?.host || 'optin.agentcy.co.za'}`;
 
   const due = await airtableRequest(
-    `${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=${encodeURIComponent(DUE_FILTER(today))}`
+    `${BASE_ID()}/${TABLE_ID()}?pageSize=100&filterByFormula=${encodeURIComponent(DUE_FILTER(today))}`
   );
   if (!due.ok) {
     console.error(`[followup] could not read due leads: ${due.status} ${due.body}`);
@@ -108,7 +106,7 @@ module.exports = async function handler(req, res) {
     }
 
     const done = touch >= MAX_TOUCHES;
-    const updated = await airtableRequest(`${BASE_ID}/${TABLE_ID}/${record.id}`, {
+    const updated = await airtableRequest(`${BASE_ID()}/${TABLE_ID()}/${record.id}`, {
       method: 'PATCH',
       // An object, not a pre-stringified one: the shared client serialises it.
       body: {
@@ -116,8 +114,20 @@ module.exports = async function handler(req, res) {
           'Touch Count': touch,
           'Last Touch Date': today,
           'Next Follow-Up Date': nextFollowUpDate(touch),
-          // Past the last touch, park it so no later run picks it up again.
-          Status: done ? 'Paused' : 'Contacted',
+          // Status is deliberately NOT advanced to 'Contacted' here.
+          //
+          // DUE_FILTER selects {Status} = 'New Opt-In', because that single
+          // field is the whole opt-out mechanism: unsubscribing moves Status, and
+          // any other value a human sets (Qualified, Won) stops the sequence for
+          // free. Writing 'Contacted' after the first send therefore made the
+          // lead invisible to its own job and the sequence stopped dead after
+          // one email - while both halves of that were separately tested and
+          // passing, because no test ran them against each other.
+          //
+          // Touch Count is the sequence position; Status is the suppression
+          // switch. Conflating them is what broke it, so keep them separate.
+          // Only the end of the sequence moves Status.
+          Status: done ? 'Paused' : undefined,
           'Next Action': done
             ? 'Sequence complete - awaiting their reply'
             : `Follow-up touch ${touch + 1} scheduled`,

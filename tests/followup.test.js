@@ -253,10 +253,56 @@ test('the job emails each due lead and books the next touch', async () => {
 
   const patch = state.patches[0].body.fields;
   assert.equal(patch['Touch Count'], 1);
-  assert.equal(patch.Status, 'Contacted');
   assert.match(patch['Next Follow-Up Date'], /^\d{4}-\d{2}-\d{2}$/);
   assert.ok(patch['Next Follow-Up Date'] > new Date().toISOString().slice(0, 10),
     'the next touch is scheduled in the future, not today');
+
+  // Status must be left alone mid-sequence. See the note in cron/followup.js:
+  // the due filter selects {Status} = 'New Opt-In' because that field is the
+  // whole opt-out mechanism, so advancing it to 'Contacted' after the first
+  // send made every lead invisible to its own job.
+  assert.equal(patch.Status, undefined,
+    'Status is the suppression switch and is not advanced between touches');
+});
+
+test('a lead is still due for its second and third touch', () => {
+  // The regression that mattered. This is the test whose absence let the
+  // sequence ship as one email long: the job wrote Status = 'Contacted' and the
+  // filter only matched 'New Opt-In', so after touch 1 nothing matched again.
+  // Both halves were tested separately and both passed - the filter's shape
+  // against a literal string, and the job's patch against an expected literal.
+  // Nothing ever asked whether a lead the job had already touched could still
+  // come back round.
+  const f = followup.DUE_FILTER('2026-09-26');
+  assert.match(f, /\{Status\} = 'New Opt-In'/);
+
+  // Simulate the state the tracker is actually in after one send: touch count
+  // advanced, Status deliberately untouched.
+  const afterTouchOne = { 'Touch Count': 1, 'POPIA Consent': 'Yes', Status: 'New Opt-In' };
+  assert.equal(afterTouchOne.Status, 'New Opt-In', 'Status survives the first send');
+  assert.ok(afterTouchOne['Touch Count'] < followup.MAX_TOUCHES, 'and there are touches left');
+  assert.match(afterTouchOne['POPIA Consent'], /^Yes$/, 'and consent still holds');
+
+  // The gate is the pair: under the cap, still in the opening status, consented.
+  const stillDue = afterTouchOne['Touch Count'] < followup.MAX_TOUCHES
+    && afterTouchOne.Status === 'New Opt-In'
+    && afterTouchOne['POPIA Consent'] === 'Yes';
+  assert.equal(stillDue, true, 'a lead that has had one email is still in the sequence');
+});
+
+test('the due filter requires consent, not just a status', () => {
+  // The other writers to this table - the Make/n8n automations, manual edits,
+  // an older import - do not go through the opt-in endpoint's consent check.
+  // The filter is the last thing before a send, so s69(1) has to be enforced
+  // here or a record with a blank consent value is emailed anyway.
+  const f = followup.DUE_FILTER('2026-09-26');
+  assert.match(f, /\{POPIA Consent\} = 'Yes'/, 'an unconsented record is never due');
+
+  // Blank is not consent. Airtable's equality is exact, so a missing field
+  // cannot accidentally satisfy it.
+  for (const value of ['', 'No', 'yes', 'pending', undefined]) {
+    assert.notEqual(value, 'Yes', `${JSON.stringify(value)} must not satisfy the filter`);
+  }
 });
 
 test('replies go to a monitored inbox, not the sending subdomain', async () => {

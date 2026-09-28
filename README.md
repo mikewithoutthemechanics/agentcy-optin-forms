@@ -82,6 +82,8 @@ Set in Vercel → Settings → Environment Variables. All three environments.
 | Variable | Required | Purpose |
 |---|---|---|
 | `AIRTABLE_API_KEY` | yes | PAT with `data.records:write` + `schema.bases:read` on `app0CK3JUNYEGcCMV` |
+| `AIRTABLE_BASE_ID` | no | defaults to the base above; set it explicitly if you ever fork the tracker |
+| `AIRTABLE_TABLE_ID` | no | defaults to `tblnhzmqneNswTvGd` ("Agentcy Outreach Tracker") |
 | `RESEND_API_KEY` | for email | send-only key scoped to the sending domain |
 | `RESEND_FROM` | for email | e.g. `Agentcy <optin@concierge.agentcy.co.za>` |
 | `RESEND_REPLY_TO` | recommended | a **monitored** inbox; defaults to `hello@agentcy.co.za` |
@@ -165,12 +167,24 @@ lead. Watch the Vercel logs for `Airtable table is missing column(s)`.
 Pipeline columns (`Status`, `Touch Count`, `Next Follow-Up Date`, …) are set on create and
 are read by the follow-up job below.
 
+**`Status` is the sequence position's _opposite_.** It is the opt-out switch, and
+`Touch Count` is the position. They were briefly conflated, which quietly reduced the
+sequence to a single email: the job set `Status = "Contacted"` after touch 1 while the
+due filter selected `{Status} = "New Opt-In"`, so no lead ever matched again. Nothing
+caught it because each half was tested separately and both passed. The job now leaves
+`Status` alone until the end of the sequence.
+
+**Add the new columns before redeploying.** `Consent Timestamp` and
+`Consent Text Version` are written on every opt-in; until they exist the fields are
+dropped with a warning and no evidence is recorded.
+
 Views worth creating:
 
 1. **Pipeline Kanban** — group by `Status`
 2. **Today's Follow-Ups** — `Next Follow-Up Date` is today AND `Touch Count` < 3
 3. **By Segment** — group by `Segment`
-4. **Consent Audit** — `POPIA Consent` = "No" (should be zero; the API rejects these)
+4. **Consent Audit** — `POPIA Consent` ≠ "Yes" (should be zero; both the API and the
+   follow-up filter now refuse these)
 5. **Unsubscribed** — `Status` = "Unsubscribed"
 
 ## Scheduled jobs
@@ -208,7 +222,19 @@ which breaks LinkedIn's terms and gets the account restricted.
   ticked anything — recorded consent they never gave. A web form cannot prove a human
   clicked a box, so a deliberate forgery is always possible; what matters is that the
   default is *not* consent.
-- An unconsented submission never reaches Airtable.
+- An unconsented submission never reaches Airtable, and an unconsented record is never
+  emailed: the follow-up filter requires `POPIA Consent = "Yes"` as well. The two are not
+  redundant — the Make/n8n automations and manual edits do not go through the intake check,
+  and the filter is the last thing before a send.
+- **s11(2)(a) evidence is recorded with the consent.** A web form cannot prove a human
+  clicked a box, and it does not pretend to. What it can do is record *what was agreed to*
+  and *when*: `Consent Timestamp` is a full ISO timestamp, so two opt-ins on the same day
+  are distinguishable, and `Consent Text Version` ties the record to the exact wording that
+  was on screen. Bump `CONSENT_TEXT_VERSION` in `api/optin.js` whenever that wording
+  changes, or a later edit will silently rewrite what past signups agreed to.
+- The client address is **not** recorded. It is personal information in its own right, it
+  is not needed to evidence consent, and the structured logs deliberately carry no name,
+  email, phone or IP either.
 - Duplicate suppression keeps one person to one record inside 30 days, so a follow-up
   sequence cannot message the same lead three times.
 - Every follow-up email carries a one-click unsubscribe link, HMAC-signed per record so it

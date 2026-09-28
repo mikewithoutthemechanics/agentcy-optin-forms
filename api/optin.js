@@ -1,6 +1,4 @@
-const { airtableRequest, beginRequest, ATTEMPTS } = require('./_airtable.js');
-const BASE_ID = process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcCMV';
-const TABLE_ID = process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
+const { airtableRequest, beginRequest, ATTEMPTS, BASE_ID, TABLE_ID } = require('./_airtable.js');
 const TOKEN = process.env.AIRTABLE_API_KEY;
 
 const RESEND_KEY = process.env.RESEND_API_KEY;
@@ -11,6 +9,16 @@ const WHATSAPP_NUMBER = (process.env.WHATSAPP_NUMBER || '+27837915429').replace(
 
 const STATUS_NEW = 'New Opt-In';
 const CONSENT_BASIS = 'Form Opt-In';
+
+/**
+ * Identifies the consent wording that was on screen when this record was made.
+ *
+ * Bump this whenever the checkbox label or the surrounding privacy sentence
+ * changes. The stored value is what ties a given opt-in to the text that was
+ * actually shown: a hash of the live wording, so a later edit to the page
+ * cannot quietly rewrite what past signups agreed to.
+ */
+const CONSENT_TEXT_VERSION = 'v1-2026-09-popia-consent';
 
 // Which PDF each segment asked for. Anything unmapped still gets a record
 // in Airtable, just no download link.
@@ -58,6 +66,11 @@ function classifyContact(value) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Full ISO timestamp, for evidence that has to distinguish two same-day opt-ins. */
+function nowIso() {
+  return new Date().toISOString();
 }
 
 /** ISO date `n` days from now, used to schedule the first follow-up touch. */
@@ -145,6 +158,7 @@ async function rescueLead({ name, contact, segment, channel, fields, status }) {
 const FALLBACK_FIELDS = new Set([
   'Name', 'Business', 'Segment', 'Area', 'Preferred Channel', 'Pain Point',
   'Current Tools', 'Email', 'Phone', 'LinkedIn', 'POPIA Consent', 'Consent Basis',
+  'Consent Timestamp', 'Consent Text Version',
   'Source', 'Opt-In Date', 'Status', 'Booked Call', 'Attended', 'Qualified',
   'Proposal Sent', 'Next Action', 'Next Follow-Up Date', 'Touch Count',
   'Last Touch Date', 'Lead Magnet',
@@ -167,7 +181,7 @@ let lastKnownFields = null;
 async function allowedFields() {
   if (cachedFields && Date.now() - cachedAt < SCHEMA_TTL_MS) return cachedFields;
 
-  const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID}/tables`, {
+  const { ok, status, body } = await airtableRequest(`meta/bases/${BASE_ID()}/tables`, {
     // No retries: this call is optional, and spending the request budget on it
     // starves the write that actually matters.
     attempts: 1,
@@ -177,14 +191,14 @@ async function allowedFields() {
   if (ok) {
     try {
       const { tables } = JSON.parse(body);
-      const table = tables.find((t) => t.id === TABLE_ID);
+      const table = tables.find((t) => t.id === TABLE_ID());
       if (table) {
         cachedFields = new Set(table.fields.map((f) => f.name));
         cachedAt = Date.now();
         lastKnownFields = cachedFields;
         return cachedFields;
       }
-      console.error(`[optin] Airtable table ${TABLE_ID} not found in base ${BASE_ID}`);
+      console.error(`[optin] Airtable table ${TABLE_ID()} not found in base ${BASE_ID()}`);
     } catch (err) {
       console.error(`[optin] Airtable schema response was unreadable: ${err.message}`);
     }
@@ -221,7 +235,7 @@ async function findRecentDuplicate(contact) {
     `AND({${column}} = "${contact.value.replace(/"/g, '\\"')}", ` +
     `IS_AFTER({Opt-In Date}, "${cutoff}"))`;
   const path =
-    `${BASE_ID}/${TABLE_ID}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+    `${BASE_ID()}/${TABLE_ID()}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
 
   const { ok, status, body } = await airtableRequest(path, { reserveMs: WRITE_RESERVE_MS });
   if (!ok) {
@@ -250,8 +264,25 @@ function buildFields(body, allowed, contact) {
     Email: contact.kind === 'email' ? contact.value : '',
     Phone: contact.kind === 'phone' ? contact.value : '',
     LinkedIn: contact.kind === 'linkedin' ? contact.value : '',
-    'POPIA Consent': trimmed(body.popia_consent, 10) || 'Yes',
+    // Recorded, never defaulted. This previously read
+    // `trimmed(body.popia_consent, 10) || 'Yes'`, which turns an absent value
+    // into a record of consent. It was unreachable only because the handler
+    // above rejects anything that is not exactly 'Yes' first - so the one thing
+    // keeping it safe was a comparison in a different function. Loosen that
+    // check for any reason and every unconsented record silently becomes
+    // consent. Absent means absent.
+    'POPIA Consent': trimmed(body.popia_consent, 10),
     'Consent Basis': CONSENT_BASIS,
+    // s11(2)(a) puts the onus on us to be able to prove consent was given.
+    // A web form cannot prove a human clicked a box, and pretending otherwise
+    // helps nobody. What it can do is record *what was agreed to* and *when*,
+    // so that if the question is ever asked we can point at the exact wording
+    // the person saw at the exact moment they saw it.
+    //
+    // `Opt-In Date` is a date with no time, which cannot order two opt-ins on
+    // the same day, so a full timestamp is kept alongside it.
+    'Consent Timestamp': trimmed(body.optin_timestamp, 30) || nowIso(),
+    'Consent Text Version': CONSENT_TEXT_VERSION,
     Source: trimmed(body.source, 120) || 'website',
     'Opt-In Date': trimmed(body.optin_date, 10) || today(),
     Status: STATUS_NEW,
@@ -610,7 +641,7 @@ module.exports = async function handler(req, res) {
 
     const fields = buildFields(body, allowed, contact);
 
-    const airtable = await airtableRequest(`${BASE_ID}/${TABLE_ID}`, {
+    const airtable = await airtableRequest(`${BASE_ID()}/${TABLE_ID()}`, {
       method: 'POST',
       // typecast lets Airtable create single-select options on first use
       // instead of rejecting leads over a label mismatch.

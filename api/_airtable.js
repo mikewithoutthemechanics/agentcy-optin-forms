@@ -23,6 +23,22 @@ const REQUEST_BUDGET_MS = Number(process.env.AIRTABLE_REQUEST_BUDGET_MS || 4000)
 const BASE = 'https://api.airtable.com/v0';
 const TOKEN = () => process.env.AIRTABLE_API_KEY;
 
+// The tracker lives here, in one place, because these were previously defined
+// independently in each entry point and one of them had a typo: the follow-up
+// job's fallback was `app0CK3JUNYEGcMTV`, the opt-in endpoint's was
+// `app0CK3JUNYEGcCMV`. The first is not a real base.
+//
+// It only bites when AIRTABLE_BASE_ID is unset, and the failure is invisible:
+// Airtable 404s, the job logs one line, and returns HTTP 200 with
+// {ok:false}. The stateless health watch cannot see it, because it probes its own
+// writes rather than this job's reads. So the whole follow-up sequence would
+// stop and nothing would report it.
+//
+// Read at call time, not at module load, so a Vercel env change takes effect on
+// the next request without a redeploy - and so a test can point it somewhere else.
+const BASE_ID = () => process.env.AIRTABLE_BASE_ID || 'app0CK3JUNYEGcCMV';
+const TABLE_ID = () => process.env.AIRTABLE_TABLE_ID || 'tblnhzmqneNswTvGd';
+
 // Vercel kills a function that overruns its limit and returns an HTML error
 // page, not JSON. The browser then cannot parse the response and shows a bare
 // "Submission failed" - and the lead is gone with nothing in the logs to
@@ -128,4 +144,4 @@ async function airtableRequest(
   return { ok: false, status, body: lastBody };
 }
 
-module.exports = { airtableRequest, beginRequest, remaining, ATTEMPTS };
+module.exports = { airtableRequest, beginRequest, remaining, ATTEMPTS, BASE_ID, TABLE_ID };

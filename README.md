@@ -82,6 +82,8 @@ Set in Vercel → Settings → Environment Variables. All three environments.
 | Variable | Required | Purpose |
 |---|---|---|
 | `AIRTABLE_API_KEY` | yes | PAT with `data.records:write` + `schema.bases:read` on `app0CK3JUNYEGcCMV` |
+| `AIRTABLE_BASE_ID` | no | defaults to the base above; set it explicitly if you ever fork the tracker |
+| `AIRTABLE_TABLE_ID` | no | defaults to `tblnhzmqneNswTvGd` ("Agentcy Outreach Tracker") |
 | `RESEND_API_KEY` | for email | send-only key scoped to the sending domain |
 | `RESEND_FROM` | for email | e.g. `Agentcy <optin@concierge.agentcy.co.za>` |
 | `RESEND_REPLY_TO` | recommended | a **monitored** inbox; defaults to `hello@agentcy.co.za` |
@@ -165,12 +167,24 @@ lead. Watch the Vercel logs for `Airtable table is missing column(s)`.
 Pipeline columns (`Status`, `Touch Count`, `Next Follow-Up Date`, …) are set on create and
 are read by the follow-up job below.
 
+**`Status` is the sequence position's _opposite_.** It is the opt-out switch, and
+`Touch Count` is the position. They were briefly conflated, which quietly reduced the
+sequence to a single email: the job set `Status = "Contacted"` after touch 1 while the
+due filter selected `{Status} = "New Opt-In"`, so no lead ever matched again. Nothing
+caught it because each half was tested separately and both passed. The job now leaves
+`Status` alone until the end of the sequence.
+
+**Add the new columns before redeploying.** `Consent Timestamp` and
+`Consent Text Version` are written on every opt-in; until they exist the fields are
+dropped with a warning and no evidence is recorded.
+
 Views worth creating:
 
 1. **Pipeline Kanban** — group by `Status`
 2. **Today's Follow-Ups** — `Next Follow-Up Date` is today AND `Touch Count` < 3
 3. **By Segment** — group by `Segment`
-4. **Consent Audit** — `POPIA Consent` = "No" (should be zero; the API rejects these)
+4. **Consent Audit** — `POPIA Consent` ≠ "Yes" (should be zero; both the API and the
+   follow-up filter now refuse these)
 5. **Unsubscribed** — `Status` = "Unsubscribed"
 
 ## Scheduled jobs
@@ -198,7 +212,52 @@ it is retried tomorrow instead of silently disappearing.
 
 **Email only.** Phone and LinkedIn leads are skipped and left for a human. The original
 blueprint dialled Twilio for WhatsApp (never connected) and sent automated LinkedIn DMs,
-which breaks LinkedIn's terms and gets the account restricted.
+which breaks LinkedIn's terms and gets the account restricted. That blueprint has been
+removed - see [One stack](#one-stack) below.
+
+<a id="one-stack"></a>
+## One stack
+
+There is exactly one follow-up runner. Everything else that touched these leads has been
+deleted, because a second runner does not halve the emails - it doubles them:
+
+| Concern | Owner | Why |
+|---|---|---|
+| Consent + delivery | **Resend** (send-only key, `concierge.agentcy.co.za` verified) | The only sender in the stack |
+| Lead store | **Airtable**, one base, one table | `Status` is the opt-out switch, so a second list cannot drift |
+| Sequence | **Vercel cron** `/api/cron/followup`, 07:00 UTC | Always on, and it owns `Touch Count` |
+| Liveness | **Vercel cron** `/api/cron/health-watch`, 06:00 UTC | Stateless, so an Airtable outage cannot silence it |
+| WhatsApp / LinkedIn | **A human** | The forms accept these as contact channels; nothing automates them |
+
+### Removed
+
+`SENDGRID_API_KEY`, `TWILIO_*` and `LINKEDIN_ACCESS_TOKEN` are gone from the repo, along
+with everything that used them:
+
+- `.github/workflows/daily-followup.yml` — ran `scripts/daily_followup.py` on `0 7 * * *`,
+  **the same minute as the Vercel cron**, and sent via SendGrid, Twilio and LinkedIn. It
+  failed on 14 of 14 runs, every day since 2026-09-14, so it was not double-sending. It
+  was also one working secret away from doing so.
+- `.github/workflows/lead-magnet-delivery.yml` — called `scripts/deliver_lead_magnet.py`,
+  which does not exist. It could never have succeeded.
+- `scripts/daily_followup.py` — the blueprint, 23 references to the dead stack.
+- `make-scenario-followup.json`, `n8n-workflow-daily-followup.json`,
+  `pipedream-workflow-daily-followup.json` — exports for the same blueprint.
+
+### You must switch these off yourself
+
+**Deleting a workflow file from this repo does not stop an automation running in someone
+else's account.** If any of these are live, they are still sending:
+
+- **n8n** — an "Agentcy Daily Follow-Up" workflow, sending from `michael@agentcy.co.za` via
+  SendGrid, plus Twilio WhatsApp and automated LinkedIn DMs. This is the dangerous one: the
+  LinkedIn DMs are exactly what breaks LinkedIn's terms. Check it first.
+- **Make** — the "Agentcy Pipeline" scenario. Also the likely home of the stray-z
+  `michaelgrazemek@gmail.com` reply-to.
+- **Pipedream** — a daily follow-up workflow.
+
+If one of them is still on and the others are off, it is the only sender left — which is
+the same as none of them being on, minus the compliance problem.
 
 ## POPIA
 
@@ -208,7 +267,19 @@ which breaks LinkedIn's terms and gets the account restricted.
   ticked anything — recorded consent they never gave. A web form cannot prove a human
   clicked a box, so a deliberate forgery is always possible; what matters is that the
   default is *not* consent.
-- An unconsented submission never reaches Airtable.
+- An unconsented submission never reaches Airtable, and an unconsented record is never
+  emailed: the follow-up filter requires `POPIA Consent = "Yes"` as well. The two are not
+  redundant — the Make/n8n automations and manual edits do not go through the intake check,
+  and the filter is the last thing before a send.
+- **s11(2)(a) evidence is recorded with the consent.** A web form cannot prove a human
+  clicked a box, and it does not pretend to. What it can do is record *what was agreed to*
+  and *when*: `Consent Timestamp` is a full ISO timestamp, so two opt-ins on the same day
+  are distinguishable, and `Consent Text Version` ties the record to the exact wording that
+  was on screen. Bump `CONSENT_TEXT_VERSION` in `api/optin.js` whenever that wording
+  changes, or a later edit will silently rewrite what past signups agreed to.
+- The client address is **not** recorded. It is personal information in its own right, it
+  is not needed to evidence consent, and the structured logs deliberately carry no name,
+  email, phone or IP either.
 - Duplicate suppression keeps one person to one record inside 30 days, so a follow-up
   sequence cannot message the same lead three times.
 - Every follow-up email carries a one-click unsubscribe link, HMAC-signed per record so it
@@ -244,9 +315,19 @@ as a fault lasts. Both are deliberate caps, not oversights.
 
 ## Still to do
 
+- [ ] **Switch off the old automations in n8n, Make and Pipedream.** See
+      [One stack](#one-stack). They are not in this repo and deleting the files
+      here did nothing to them. n8n first: it sends automated LinkedIn DMs.
+- [ ] **Delete the repo secrets** `SENDGRID_API_KEY`, `TWILIO_ACCOUNT_SID`,
+      `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `LINKEDIN_ACCESS_TOKEN` under
+      Settings → Secrets. Nothing reads them any more.
+- [ ] **Confirm `RESEND_REPLY_TO` in production** is a monitored inbox and not
+      the stray-z `michaelgrazemek@gmail.com`. Vercel will not return the value
+      of a sensitive variable, so this cannot be checked from the API.
 - [ ] **Clear the leftover test records** — `Outage Probe`, `Panel Probe 2`,
       `RateLimit Impact`, `Prod Impact`, `Block Check` are still in the tracker
 - [ ] Add `REDIS_URL` / `REDIS_TOKEN` for durable rate limiting
 - [ ] Decide whether to keep the three long forms
-- [ ] Fix the `michaelgrazemek@gmail.com` (stray "z") reply-to in the Agentcy Pipeline
-      automation — it is **not** in this repo, it lives in whatever sends that mail
+- [ ] Register with the NCC and run the monthly cleanse (see below)
+- [ ] `tests/check-url-validation.js` has no `.test.` suffix, so
+      `node --test tests/*.test.js` never runs it. Either rename it or delete it.

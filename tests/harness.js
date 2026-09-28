@@ -5,7 +5,8 @@
 
 const TABLE_FIELDS = [
   'Name', 'Business', 'Segment', 'Area', 'Preferred Channel', 'Pain Point',
-  'Current Tools', 'POPIA Consent', 'Consent Basis', 'Source', 'Opt-In Date',
+  'Current Tools', 'POPIA Consent', 'Consent Basis', 'Consent Timestamp',
+  'Consent Text Version', 'Source', 'Opt-In Date',
   'Status', 'Booked Call', 'Attended', 'Qualified', 'Proposal Sent',
   'Next Action', 'Next Follow-Up Date', 'Touch Count', 'Last Touch Date',
   'Lead Magnet', 'Email', 'Phone', 'LinkedIn',

@@ -172,8 +172,23 @@ function nextFollowUpDate(touch) {
  * than filtered later, so an opted-out or already-worked lead is never even
  * loaded.
  */
+/**
+ * Leads that are due: under the touch cap, still in the opening status, past
+ * their scheduled date, and consented. Everything else is deliberately
+ * excluded rather than filtered later, so an opted-out or already-worked lead is
+ * never even loaded.
+ *
+ * `{POPIA Consent} = 'Yes'` is required in the filter as well as at intake.
+ * Intake already refuses an unconsented submission, so this is a second line -
+ * but the tracker's other writers (the Make/n8n automations, manual edits, an
+ * older import) do not go through that check. s69(1) prohibits marketing to
+ * anyone who has not consented, and the due filter is the last thing before a
+ * send, so it is the right place for that to be enforced. A record with a blank
+ * or 'No' value is not a lead we may email.
+ */
 const DUE_FILTER = (today) =>
   `AND({Touch Count} < ${MAX_TOUCHES}, {Status} = 'New Opt-In', ` +
+  `{POPIA Consent} = 'Yes', ` +
   `OR({Next Follow-Up Date} = '', {Next Follow-Up Date} <= "${today}"), ` +
   `{Email} != '')`;
 
